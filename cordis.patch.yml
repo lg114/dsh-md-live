@@ -1,0 +1,5 @@
+- insert:
+  - id: md-live-host
+    name: 'dsh-md-live'
+  - id: md-live-client
+    name: 'dsh-md-live/client'
