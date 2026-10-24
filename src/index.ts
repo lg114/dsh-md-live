@@ -19,6 +19,7 @@ export interface FileChangeEvent {
 }
 
 export const name = 'dsh-md-live';
+export const inject = ['rpc', 'tools'];
 
 export function apply(ctx: any, config: Config = {}) {
   const {

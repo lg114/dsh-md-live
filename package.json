@@ -10,9 +10,7 @@
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
     },
-    "./client": {
-      "import": "./lib/client.js"
-    },
+    "./client": "./lib/client.cjs",
     "./package.json": "./package.json"
   },
   "files": [
