@@ -443,6 +443,39 @@
   min-width: 0;
 }
 
+/* Filter rules: the directories the walk leaves out, editable in place */
+.md-live-rules {
+  padding: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+}
+
+.md-live-rules-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 96px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-family: var(--ds-font-family-code, var(--dsh-font-family-code-default, ui-monospace, monospace));
+  font-size: var(--dsh-code-font-size, 12px);
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.md-live-rules-input:focus {
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.md-live-rules-actions {
+  display: flex;
+  gap: 4px;
+  padding-top: 6px;
+}
+
 /* Status lines */
 
 .md-live-status {

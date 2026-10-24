@@ -13,13 +13,6 @@ const KIND = 'md-live';
 /** This implementation's identity; the body and title register under it. */
 const ID = 'dsh-md-live';
 
-/** Directories that never hold the Markdown a user wants to preview. */
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'target',
-  'vendor', '__pycache__', '.venv', 'venv', 'env', 'coverage', '.next', '.nuxt',
-  '.cache', '.turbo', '.idea', '.gradle', '.terraform', 'bin', 'obj',
-]);
-
 const MARKDOWN_RE = /\.(md|markdown|mdx)$/i;
 
 /**
@@ -136,9 +129,11 @@ export function apply(ctx: any) {
       let skippedDirs = 0;
       let entriesSeen = 0;
       let lastError: any = null;
-      // Filtering build and dependency directories is a default, not a rule:
-      // the picker reports how many it left out and can include them on demand.
-      const includeNoisy = options?.includeNoisy === true;
+      // Filtering is the user's call: the picker passes the rules it holds,
+      // and an empty list means "walk everything".
+      const skipDirs = new Set(
+        (options?.skipDirs ?? []).map((name) => String(name).trim().toLowerCase()).filter(Boolean),
+      );
 
       // Breadth-first, one level at a time, with a bounded fan-out: a big
       // workspace costs a handful of round trips per level instead of one per
@@ -183,7 +178,7 @@ export function apply(ctx: any) {
               const child = `${item.dir}/${name}`;
 
               if (entry?.type === 'directory') {
-                if (!includeNoisy && SKIP_DIRS.has(name.toLowerCase())) {
+                if (skipDirs.has(name.toLowerCase())) {
                   skippedDirs += 1;
                   continue;
                 }

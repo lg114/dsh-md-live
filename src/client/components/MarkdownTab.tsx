@@ -196,7 +196,9 @@ export function MarkdownTabBody(props: any) {
   /** Whether the open file is being watched, so the header can stay silent. */
   const [live, setLive] = useState<'connecting' | 'live' | 'unavailable'>('connecting');
   const [list, setList] = useState<ListState>(EMPTY_LIST);
-  const [includeNoisy, setIncludeNoisy] = useState(false);
+  const [skipDirs, setSkipDirs] = useState<string[]>(() => loadSkipDirs());
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [draft, setDraft] = useState('');
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(
@@ -284,7 +286,7 @@ export function MarkdownTabBody(props: any) {
         const found = await api.listMarkdown(
           sessionId,
           root,
-          { includeNoisy },
+          { skipDirs },
           ac.signal,
           (partial) => {
             if (ac.signal.aborted) return;
@@ -300,7 +302,7 @@ export function MarkdownTabBody(props: any) {
       }
     })();
     return () => ac.abort();
-  }, [path, api, sessionId, root, includeNoisy]);
+  }, [path, api, sessionId, root, skipDirs]);
 
   const toc = useMemo<TOCItem[]>(() => (content ? extractTOC(content) : []), [content]);
   const html = useMemo(
@@ -415,21 +417,69 @@ export function MarkdownTabBody(props: any) {
                     })}
                   </div>
                 )}
-                {!scanning && list.truncatedBy ? (
-                  <div className="md-live-picker-note">
-                    <span>{truncationNote(list.truncatedBy, list.limits)}</span>
-                  </div>
-                ) : null}
-                {!scanning && (list.skippedDirs > 0 || includeNoisy) ? (
+                {!scanning && (list.truncatedBy || skipDirs.length > 0) ? (
                   <div className="md-live-picker-note">
                     <span>
-                      {includeNoisy
-                        ? '已包含 node_modules、dist 等构建与依赖目录'
-                        : `已跳过 ${list.skippedDirs} 个构建与依赖目录（node_modules、dist 等）`}
+                      {list.truncatedBy
+                        ? truncationNote(list.truncatedBy, list.limits)
+                        : skipDirs.length === 0
+                          ? '已包含所有目录'
+                          : `已跳过 ${list.skippedDirs} 个目录（${skipDirs.length} 条过滤规则）`}
                     </span>
-                    <button className="md-live-btn" onClick={() => setIncludeNoisy((v) => !v)}>
-                      {includeNoisy ? '只看源码' : '显示全部'}
+                    <button
+                      className="md-live-btn"
+                      onClick={() => {
+                        setDraft(skipDirs.join('\n'));
+                        setRulesOpen((open) => !open);
+                      }}
+                    >
+                      {rulesOpen ? '收起规则' : '过滤规则'}
                     </button>
+                  </div>
+                ) : null}
+                {rulesOpen ? (
+                  <div className="md-live-rules">
+                    <textarea
+                      className="md-live-rules-input"
+                      value={draft}
+                      spellCheck={false}
+                      placeholder="一行一个目录名，例如 node_modules"
+                      onChange={(e) => setDraft(e.target.value)}
+                    />
+                    <div className="md-live-rules-actions">
+                      <button
+                        className="md-live-btn"
+                        onClick={() => {
+                          const next = parseRules(draft);
+                          setSkipDirs(next);
+                          saveSkipDirs(next);
+                          setRulesOpen(false);
+                        }}
+                      >
+                        保存
+                      </button>
+                      <button
+                        className="md-live-btn"
+                        onClick={() => {
+                          const next = [...DEFAULT_SKIP_DIRS];
+                          setDraft(next.join('\n'));
+                          setSkipDirs(next);
+                          saveSkipDirs(next);
+                        }}
+                      >
+                        恢复默认
+                      </button>
+                      <button
+                        className="md-live-btn"
+                        onClick={() => {
+                          setDraft('');
+                          setSkipDirs([]);
+                          saveSkipDirs([]);
+                        }}
+                      >
+                        全部显示
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </>

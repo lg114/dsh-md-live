@@ -7,6 +7,7 @@ const vm = require('vm');
 
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+  url: 'http://localhost/',
   pretendToBeVisual: true,
 });
 global.window = dom.window;
@@ -26,6 +27,7 @@ const registered = [];
 const sandbox = {
   console: { log() {}, error: (...a) => console.error('[bundle]', ...a), warn() {} },
   document: dom.window.document,
+  localStorage: dom.window.localStorage,
   TextDecoder,
   TextEncoder,
   AbortController,
@@ -197,20 +199,39 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('18) deep file listed in one pass:', pickerHtml.includes('deep.md'));
   console.log('19) no truncation note:', !/目录层级超过|目录数量超过|只列出前|条目过多/.test(pickerHtml));
   console.log('20) no manual rescan in the picker:', emptyEl.querySelectorAll('.md-live-actions button').length === 0 && !pickerHtml.includes('继续扫描'));
-  console.log('28) says how many directories it left out:', pickerHtml.includes('已跳过 1 个'));
+  console.log('28) says how many directories it left out:', pickerHtml.includes('已跳过 1 个目录'));
 
-  const showAll = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '显示全部');
-  console.log('29) offers to include them:', Boolean(showAll));
-  if (showAll) {
-    showAll.click();
-    await wait(150);
-    const all = emptyEl.innerHTML;
-    console.log('30) including them finds the hidden file:', all.includes('node_modules/pkg/README.md') && /4 个文件/.test(all));
-    const onlySource = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '只看源码');
-    if (onlySource) {
-      onlySource.click();
+  const rulesButton = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '过滤规则');
+  console.log('29) offers editable rules:', Boolean(rulesButton));
+  if (rulesButton) {
+    rulesButton.click();
+    await wait(30);
+    const area = emptyEl.querySelector('.md-live-rules-input');
+    console.log('30) editor is prefilled with the current rules:', Boolean(area) && area.value.split('\n').length === 23 && area.value.includes('node_modules'));
+
+    if (area) {
+      area.value = '';
+      area.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await wait(20);
+      const showAll = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '全部显示');
+      showAll.click();
+      await wait(200);
+      const all = emptyEl.innerHTML;
+      console.log('31) clearing the rules includes everything:', all.includes('node_modules/pkg/README.md') && /4 个文件/.test(all));
+      console.log('32) cleared rules persist to storage:', dom.window.localStorage.getItem('dsh-md-live.skip-dirs.v1') === '[]');
+
+      const againEl = document.createElement('div');
+      document.body.appendChild(againEl);
+      const r8 = createRoot(againEl);
+      r8.render(React.createElement(captured.body.Comp, {
+        useTabInfo: () => ({ tab: { id: 't8', navigation: { params: {}, revision: 0 }, signal: new AbortController().signal } }),
+        sessionId: 's1', useSessions: sessionsHook, api,
+      }));
       await wait(150);
-      console.log('31) toggling back restores the filter:', !emptyEl.innerHTML.includes('node_modules/pkg/README.md'));
+      console.log('33) a fresh mount honours the saved rules:', againEl.innerHTML.includes('node_modules/pkg/README.md'));
+      r8.unmount();
+
+      dom.window.localStorage.removeItem('dsh-md-live.skip-dirs.v1');
     }
   }
 
