@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { renderMarkdown, extractTOC, sanitizeHtml, TOCItem } from '../utils/markdown';
 import { TOC } from './TOC';
-import '../styles/panel.css';
 
 interface MarkdownPreviewPanelProps {
   onClose?: () => void;
@@ -17,27 +16,28 @@ export const MarkdownPreviewPanel: React.FC<MarkdownPreviewPanelProps> = ({ onCl
   const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // Load file content
-  const loadFile = useCallback(async (path: string) => {
-    if (!ctx?.rpc) return;
-    
-    try {
-      const result = await ctx.rpc.call('md-live:read-file', path);
-      setContent(result.content);
-      setEditContent(result.content);
+  // Load file content (from event data, not RPC)
+  const loadFile = useCallback((path: string, fileContent?: string) => {
+    if (fileContent) {
+      setContent(fileContent);
+      setEditContent(fileContent);
       setFilePath(path);
-      setToc(extractTOC(result.content));
-    } catch (err) {
-      console.error('[dsh-md-live] Error loading file:', err);
+      setToc(extractTOC(fileContent));
+    } else {
+      // No content provided, just update path
+      setFilePath(path);
+      setContent('');
+      setEditContent('');
+      setToc([]);
     }
-  }, [ctx]);
+  }, []);
 
   // Listen for file open events
   useEffect(() => {
     if (!ctx?.on) return;
 
-    const handler = (data: { path: string }) => {
-      loadFile(data.path);
+    const handler = (data: { path: string; content?: string }) => {
+      loadFile(data.path, data.content);
     };
 
     ctx.on('md-live:client-open-file', handler);
@@ -102,6 +102,15 @@ export const MarkdownPreviewPanel: React.FC<MarkdownPreviewPanelProps> = ({ onCl
     }
   }, [ctx, filePath]);
 
+  // Handle close with dismiss tracking
+  const handleClose = useCallback(() => {
+    // Notify host that user dismissed the preview (for auto-open cooldown)
+    if (filePath) {
+      ctx?.emit?.('md-live:user-dismiss', { path: filePath });
+    }
+    onClose?.();
+  }, [ctx, filePath, onClose]);
+
   // Scroll to heading
   const scrollToHeading = useCallback((id: string) => {
     if (!previewRef.current) return;
@@ -137,8 +146,8 @@ export const MarkdownPreviewPanel: React.FC<MarkdownPreviewPanelProps> = ({ onCl
             📤
           </button>
           {onClose && (
-            <button className="md-live-btn" onClick={onClose} title="Close panel">
-              ✕
+            <button className="md-live-btn" onClick={handleClose} title="Close preview">
+              
             </button>
           )}
         </div>

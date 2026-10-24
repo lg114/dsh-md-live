@@ -3,11 +3,8 @@ import * as path from 'path';
 import chokidar from 'chokidar';
 
 export interface Config {
-  /** Workspace root path to watch */
   workspacePath?: string;
-  /** File extensions to watch (default: ['.md', '.markdown']) */
   extensions?: string[];
-  /** Enable debug logging */
   debug?: boolean;
 }
 
@@ -19,112 +16,59 @@ export interface FileChangeEvent {
 }
 
 export const name = 'dsh-md-live';
-export const inject = ['rpc', 'tools'];
+export const inject: string[] = [];
+
+const recentToolWrites = new Map<string, number>();
+const DEDUP_WINDOW_MS = 500;
+const userDismissals = new Map<string, number>();
+const USER_DISMISS_TIMEOUT_MS = 30 * 60 * 1000;
+
+const WRITE_TOOL_NAMES = new Set([
+  'write', 'edit', 'file_write', 'file_edit',
+  'create_file', 'search_replace', 'write_file',
+]);
 
 export function apply(ctx: any, config: Config = {}) {
   const {
     workspacePath = process.cwd(),
     extensions = ['.md', '.markdown'],
-    debug = false,
+    debug = true,
   } = config;
 
   const log = (...args: any[]) => {
-    if (debug) console.log('[dsh-md-live]', ...args);
+    if (debug) console.log('[dsh-md-live HOST]', ...args);
   };
 
-  // Store active watchers
+  log('=== HOST START ===');
+  log('ctx keys:', Object.keys(ctx));
+  log('workspacePath:', workspacePath);
+
   const watchers = new Map<string, chokidar.FSWatcher>();
-  
-  // Store file contents cache
   const fileCache = new Map<string, { content: string; mtime: number }>();
 
-  // Register RPC methods for client communication
-  ctx.rpc?.register('md-live:read-file', async (filePath: string) => {
-    try {
-      const absolutePath = path.resolve(workspacePath, filePath);
-      
-      // Security check: ensure path is within workspace
-      if (!absolutePath.startsWith(path.resolve(workspacePath))) {
-        throw new Error('Access denied: path outside workspace');
-      }
-      
-      const content = await fs.promises.readFile(absolutePath, 'utf-8');
-      const stat = await fs.promises.stat(absolutePath);
-      
-      fileCache.set(filePath, { content, mtime: stat.mtimeMs });
-      
-      return { content, mtime: stat.mtimeMs };
-    } catch (err: any) {
-      log('Error reading file:', err.message);
-      throw err;
-    }
-  });
-
-  ctx.rpc?.register('md-live:list-files', async (subdir: string = '') => {
-    try {
-      const targetPath = path.resolve(workspacePath, subdir);
-      
-      // Security check
-      if (!targetPath.startsWith(path.resolve(workspacePath))) {
-        throw new Error('Access denied: path outside workspace');
-      }
-      
-      const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
-      const files = entries
-        .filter(entry => entry.isFile() && extensions.some(ext => entry.name.endsWith(ext)))
-        .map(entry => ({
-          name: entry.name,
-          path: path.join(subdir, entry.name),
-        }));
-      
-      return files;
-    } catch (err: any) {
-      log('Error listing files:', err.message);
-      throw err;
-    }
-  });
-
-  // Watch workspace for file changes
+  // File watcher
   const startWatching = () => {
     const watchPatterns = extensions.map(ext => `**/*${ext}`);
-    
     log('Starting file watcher at:', workspacePath);
-    log('Watching patterns:', watchPatterns);
 
     const watcher = chokidar.watch(watchPatterns, {
       cwd: workspacePath,
-      ignored: /(^|[\/\\])\../, // ignore dotfiles
+      ignored: /(^|[\/\\])\../,
       persistent: true,
       ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 300,
-        pollInterval: 100,
-      },
+      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
     });
 
     watcher
-      .on('add', (filePath) => {
-        log('File added:', filePath);
-        handleFileEvent('add', filePath);
-      })
-      .on('change', (filePath) => {
-        log('File changed:', filePath);
-        handleFileEvent('change', filePath);
-      })
-      .on('unlink', (filePath) => {
-        log('File unlinked:', filePath);
-        handleFileEvent('unlink', filePath);
-      });
+      .on('add', (filePath) => { log('File added:', filePath); handleFileEvent('add', filePath); })
+      .on('change', (filePath) => { log('File changed:', filePath); handleFileEvent('change', filePath); })
+      .on('unlink', (filePath) => { log('File unlinked:', filePath); handleFileEvent('unlink', filePath); });
 
     watchers.set('main', watcher);
   };
 
   const handleFileEvent = async (type: 'add' | 'change' | 'unlink', filePath: string) => {
-    const event: FileChangeEvent = {
-      type,
-      path: filePath,
-      timestamp: Date.now(),
-    };
+    const event: FileChangeEvent = { type, path: filePath, timestamp: Date.now() };
 
     if (type !== 'unlink') {
       try {
@@ -139,62 +83,74 @@ export function apply(ctx: any, config: Config = {}) {
       fileCache.delete(filePath);
     }
 
-    // Emit event to client
+    log('Emitting md-live:file-changed:', event.path);
     ctx.emit?.('md-live:file-changed', event);
   };
 
-  // Start watching
   startWatching();
 
-  // Cleanup on dispose
+  // Listen for Agent tool completions
+  if (ctx.on) {
+    ctx.on('tools/result', async (exec: any, result: any) => {
+      const toolName = (exec?.name || '').toLowerCase();
+      const args = exec?.arguments || {};
+      const filePath = args.path || args.file_path || args.file || args.target || args.uri || '';
+      
+      const isWriteTool = WRITE_TOOL_NAMES.has(toolName);
+      
+      if (isWriteTool && filePath && (filePath.endsWith('.md') || filePath.endsWith('.markdown'))) {
+        const now = Date.now();
+        recentToolWrites.set(filePath, now);
+        
+        log('✓ Agent wrote .md file:', filePath, 'via tool:', toolName);
+        await handleFileEvent('change', filePath);
+        
+        const lastDismiss = userDismissals.get(filePath) || 0;
+        if (now - lastDismiss > USER_DISMISS_TIMEOUT_MS) {
+          log('→ Emitting md-live:auto-open for:', filePath);
+          const cachedFile = fileCache.get(filePath);
+          ctx.emit?.('md-live:auto-open', { 
+            path: filePath,
+            content: cachedFile?.content 
+          });
+        } else {
+          log(' Skipping auto-open (user dismissed recently)');
+        }
+      }
+    });
+    log('✓ tools/result listener registered');
+
+    ctx.on('fs/observed', (target: string) => {
+      if (target && (target.endsWith('.md') || target.endsWith('.markdown'))) {
+        const lastToolWrite = recentToolWrites.get(target) || 0;
+        if (Date.now() - lastToolWrite > DEDUP_WINDOW_MS) {
+          log('File observed:', target);
+          handleFileEvent('change', target);
+        }
+      }
+    });
+    log('✓ fs/observed listener registered');
+
+    ctx.on('md-live:user-dismiss', (data: { path: string }) => {
+      if (data?.path) {
+        userDismissals.set(data.path, Date.now());
+        log('User dismissed preview for:', data.path);
+      }
+    });
+    log('✓ user-dismiss listener registered');
+  } else {
+    log(' ctx.on not available');
+  }
+
+  // Cleanup
   ctx.effect?.(() => {
     log('Cleaning up watchers');
     watchers.forEach((watcher) => watcher.close());
     watchers.clear();
     fileCache.clear();
+    recentToolWrites.clear();
+    userDismissals.clear();
   });
 
-  // Optional: Register tools for agent use
-  ctx.tools?.register('preview_md', {
-    description: 'Preview a markdown file in the live preview panel',
-    parameters: {
-      type: 'object',
-      properties: {
-        filePath: {
-          type: 'string',
-          description: 'Path to the markdown file relative to workspace',
-        },
-      },
-      required: ['filePath'],
-    },
-    execute: async ({ filePath }: { filePath: string }) => {
-      ctx.emit?.('md-live:open-file', { path: filePath });
-      return { success: true, message: `Opening ${filePath} in preview panel` };
-    },
-  });
-
-  ctx.tools?.register('export_md', {
-    description: 'Export markdown to HTML or PDF',
-    parameters: {
-      type: 'object',
-      properties: {
-        filePath: {
-          type: 'string',
-          description: 'Path to the markdown file',
-        },
-        format: {
-          type: 'string',
-          enum: ['html', 'pdf'],
-          description: 'Export format',
-        },
-      },
-      required: ['filePath', 'format'],
-    },
-    execute: async ({ filePath, format }: { filePath: string; format: 'html' | 'pdf' }) => {
-      ctx.emit?.('md-live:export', { path: filePath, format });
-      return { success: true, message: `Exporting ${filePath} as ${format}` };
-    },
-  });
-
-  log('Plugin initialized successfully');
+  log('=== HOST READY ===');
 }

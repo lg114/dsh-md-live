@@ -1,5 +1,7 @@
+# One row per package. The Client half (./client -> lib/client.cjs) is attached
+# automatically from package.json's `dsh.client`; adding a second `dsh-md-live/client`
+# row would make two Loader sources resolve to the same package name, which the
+# client module system rejects.
 - insert:
-  - id: md-live-host
-    name: 'dsh-md-live'
-  - id: md-live-client
-    name: 'dsh-md-live/client'
+    - id: md-live
+      name: 'dsh-md-live'
