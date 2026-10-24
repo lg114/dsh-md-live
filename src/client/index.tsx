@@ -4,6 +4,7 @@ import {
   type MdLiveApi,
   type MdLiveListing,
   type MdLiveScanBudget,
+  type MdLiveScanOptions,
   type MdLiveTruncation,
 } from './components/MarkdownTab';
 
@@ -107,6 +108,7 @@ export function apply(ctx: any) {
     listMarkdown: async (
       sessionId: string,
       root: string,
+      options: MdLiveScanOptions,
       signal: AbortSignal,
       onProgress?: (files: string[]) => void,
     ): Promise<MdLiveListing> => {
@@ -131,8 +133,12 @@ export function apply(ctx: any) {
         truncatedBy = truncatedBy ?? reason;
       };
       let dirsScanned = 0;
+      let skippedDirs = 0;
       let entriesSeen = 0;
       let lastError: any = null;
+      // Filtering build and dependency directories is a default, not a rule:
+      // the picker reports how many it left out and can include them on demand.
+      const includeNoisy = options?.includeNoisy === true;
 
       // Breadth-first, one level at a time, with a bounded fan-out: a big
       // workspace costs a handful of round trips per level instead of one per
@@ -177,7 +183,10 @@ export function apply(ctx: any) {
               const child = `${item.dir}/${name}`;
 
               if (entry?.type === 'directory') {
-                if (SKIP_DIRS.has(name.toLowerCase())) continue;
+                if (!includeNoisy && SKIP_DIRS.has(name.toLowerCase())) {
+                  skippedDirs += 1;
+                  continue;
+                }
                 if (item.depth + 1 >= limits.depth) {
                   mark('depth');
                   continue;
@@ -209,7 +218,7 @@ export function apply(ctx: any) {
         if (lastError) throw lastError;
         throw new Error(`目录「${base}」里读不到任何条目`);
       }
-      return { root: base, files, truncatedBy, limits };
+      return { root: base, files, truncatedBy, limits, skippedDirs };
     },
     watch: (sessionId: string, path: string, signal: AbortSignal) => {
       // `changes` is a Remote stream: items must be acknowledged with accept(),

@@ -25,6 +25,64 @@ export interface MdLiveListing {
   truncatedBy: MdLiveTruncation | null;
   /** The limits the scan ran with, for the note's wording. */
   limits: MdLiveScanBudget;
+  /** How many build/dependency directories the default filter left out. */
+  skippedDirs: number;
+}
+
+/** How one scan should treat build and dependency directories. */
+export interface MdLiveScanOptions {
+  /** Directory names to leave out of the walk, matched case-insensitively. */
+  skipDirs: string[];
+}
+
+/**
+ * The filter a fresh install starts with. It is a default, not a rule: the
+ * picker lets the user edit it, clear it, or restore it, and the choice is
+ * remembered per browser.
+ */
+export const DEFAULT_SKIP_DIRS: readonly string[] = [
+  'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'target',
+  'vendor', '__pycache__', '.venv', 'venv', 'env', 'coverage', '.next', '.nuxt',
+  '.cache', '.turbo', '.idea', '.gradle', '.terraform', 'bin', 'obj',
+];
+
+const SKIP_DIRS_STORAGE_KEY = 'dsh-md-live.skip-dirs.v1';
+
+/** Read the saved rules; a missing or broken value falls back to the defaults. */
+export function loadSkipDirs(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SKIP_DIRS_STORAGE_KEY);
+    if (raw === null) return [...DEFAULT_SKIP_DIRS];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_SKIP_DIRS];
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [...DEFAULT_SKIP_DIRS];
+  }
+}
+
+/** Persist the rules; a blocked storage write must not break the panel. */
+export function saveSkipDirs(rules: string[]): void {
+  try {
+    window.localStorage.setItem(SKIP_DIRS_STORAGE_KEY, JSON.stringify(rules));
+  } catch {
+    /* private mode or a full quota: the session keeps the in-memory value */
+  }
+}
+
+/** One rule per line, trimmed, empty lines dropped, duplicates collapsed. */
+function parseRules(text: string): string[] {
+  const seen = new Set<string>();
+  const rules: string[] = [];
+  for (const line of text.split('\n')) {
+    const name = line.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rules.push(name);
+  }
+  return rules;
 }
 
 /**
@@ -41,6 +99,7 @@ export interface MdLiveApi {
   listMarkdown: (
     sessionId: string,
     root: string,
+    options: MdLiveScanOptions,
     signal: AbortSignal,
     onProgress?: (files: string[]) => void,
   ) => Promise<MdLiveListing>;
@@ -73,6 +132,7 @@ interface ListState {
   files: string[];
   truncatedBy: MdLiveTruncation | null;
   limits: MdLiveScanBudget;
+  skippedDirs: number;
   error: string;
 }
 
@@ -82,6 +142,7 @@ const EMPTY_LIST: ListState = {
   files: [],
   truncatedBy: null,
   limits: { depth: 0, dirs: 0, files: 0 },
+  skippedDirs: 0,
   error: '',
 };
 
@@ -135,6 +196,7 @@ export function MarkdownTabBody(props: any) {
   /** Whether the open file is being watched, so the header can stay silent. */
   const [live, setLive] = useState<'connecting' | 'live' | 'unavailable'>('connecting');
   const [list, setList] = useState<ListState>(EMPTY_LIST);
+  const [includeNoisy, setIncludeNoisy] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(
@@ -219,11 +281,17 @@ export function MarkdownTabBody(props: any) {
     setList({ ...EMPTY_LIST, status: 'loading' });
     (async () => {
       try {
-        const found = await api.listMarkdown(sessionId, root, ac.signal, (partial) => {
-          if (ac.signal.aborted) return;
-          // Draw what has been found so far; the final result replaces it.
-          setList({ ...EMPTY_LIST, status: 'loading', root, files: partial });
-        });
+        const found = await api.listMarkdown(
+          sessionId,
+          root,
+          { includeNoisy },
+          ac.signal,
+          (partial) => {
+            if (ac.signal.aborted) return;
+            // Draw what has been found so far; the final result replaces it.
+            setList({ ...EMPTY_LIST, status: 'loading', root, files: partial });
+          },
+        );
         if (ac.signal.aborted) return;
         setList({ status: 'ready', ...found });
       } catch (err: any) {
@@ -232,7 +300,7 @@ export function MarkdownTabBody(props: any) {
       }
     })();
     return () => ac.abort();
-  }, [path, api, sessionId, root]);
+  }, [path, api, sessionId, root, includeNoisy]);
 
   const toc = useMemo<TOCItem[]>(() => (content ? extractTOC(content) : []), [content]);
   const html = useMemo(
@@ -350,6 +418,18 @@ export function MarkdownTabBody(props: any) {
                 {!scanning && list.truncatedBy ? (
                   <div className="md-live-picker-note">
                     <span>{truncationNote(list.truncatedBy, list.limits)}</span>
+                  </div>
+                ) : null}
+                {!scanning && (list.skippedDirs > 0 || includeNoisy) ? (
+                  <div className="md-live-picker-note">
+                    <span>
+                      {includeNoisy
+                        ? '已包含 node_modules、dist 等构建与依赖目录'
+                        : `已跳过 ${list.skippedDirs} 个构建与依赖目录（node_modules、dist 等）`}
+                    </span>
+                    <button className="md-live-btn" onClick={() => setIncludeNoisy((v) => !v)}>
+                      {includeNoisy ? '只看源码' : '显示全部'}
+                    </button>
                   </div>
                 ) : null}
               </>

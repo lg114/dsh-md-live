@@ -70,6 +70,8 @@ const WORKSPACE = {
       { name: '.hidden.md', type: 'file' },
     ],
   },
+  [ROOT + '/node_modules']: { path: 'node_modules', entries: [{ name: 'pkg', type: 'directory' }] },
+  [ROOT + '/node_modules/pkg']: { path: 'node_modules/pkg', entries: [{ name: 'README.md', type: 'file' }] },
   [ROOT + '/A']: { path: 'A', entries: [{ name: 'B', type: 'directory' }] },
   [ROOT + '/A/B']: { path: 'A/B', entries: [{ name: 'C', type: 'directory' }] },
   [ROOT + '/A/B/C']: { path: 'A/B/C', entries: [{ name: 'deep.md', type: 'file' }] },
@@ -190,11 +192,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('11) recursion finds nested file:', pickerHtml.includes('README.md'));
   console.log('12) dir prefix shown:', pickerHtml.includes('GitHub/dsh-md-live/'));
   console.log('13) filters non-md and dotfiles:', !pickerHtml.includes('x.txt') && !pickerHtml.includes('.hidden.md'));
-  console.log('14) skips node_modules:', !pickerHtml.includes('node_modules'));
+  console.log('14) default filter keeps node_modules out of the list:', !pickerHtml.includes('node_modules/pkg/README.md'));
   console.log('15) count line:', /3 个文件/.test(pickerHtml));
   console.log('18) deep file listed in one pass:', pickerHtml.includes('deep.md'));
-  console.log('19) no truncation note:', !pickerHtml.includes('md-live-picker-note'));
+  console.log('19) no truncation note:', !/目录层级超过|目录数量超过|只列出前|条目过多/.test(pickerHtml));
   console.log('20) no manual rescan in the picker:', emptyEl.querySelectorAll('.md-live-actions button').length === 0 && !pickerHtml.includes('继续扫描'));
+  console.log('28) says how many directories it left out:', pickerHtml.includes('已跳过 1 个'));
+
+  const showAll = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '显示全部');
+  console.log('29) offers to include them:', Boolean(showAll));
+  if (showAll) {
+    showAll.click();
+    await wait(150);
+    const all = emptyEl.innerHTML;
+    console.log('30) including them finds the hidden file:', all.includes('node_modules/pkg/README.md') && /4 个文件/.test(all));
+    const onlySource = [...emptyEl.querySelectorAll('button')].find((b) => b.textContent === '只看源码');
+    if (onlySource) {
+      onlySource.click();
+      await wait(150);
+      console.log('31) toggling back restores the filter:', !emptyEl.innerHTML.includes('node_modules/pkg/README.md'));
+    }
+  }
 
   const missingEl = document.createElement('div');
   document.body.appendChild(missingEl);
