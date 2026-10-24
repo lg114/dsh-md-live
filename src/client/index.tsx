@@ -254,12 +254,12 @@ export function apply(ctx: any) {
         kind: KIND,
         multiple: false,
         priority: 'extension',
-        title: () => 'Markdown 预览',
+        title: () => 'md-live',
         guide: [
           {
             id: 'md-live-preview',
             order: 40,
-            title: () => 'Markdown 预览',
+            title: () => 'md-live',
             description: () => '在右侧栏预览工作区的 Markdown 文件，文件变化时自动刷新',
           },
         ],

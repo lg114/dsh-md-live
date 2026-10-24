@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { extractTOC, renderMarkdown, sanitizeHtml, withHeadingIds, type TOCItem } from '../utils/markdown';
+import { extractTOC, renderMarkdown, sanitizeHtml, withHeadingIds, highlightWithin, type TOCItem } from '../utils/markdown';
 import { TOC } from './TOC';
 
 /** How far a scan may go. Only a safety net: the workspace is scanned whole. */
@@ -310,10 +310,16 @@ export function MarkdownTabBody(props: any) {
     [content, toc],
   );
 
+  // Highlighting runs on the rendered DOM, after the HTML lands.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    highlightWithin(previewRef.current);
+  }, [html, status]);
+
   const scrollToHeading = useCallback((id: string) => {
-    const root = previewRef.current;
-    if (!root) return;
-    const el = root.querySelector(`[id="${id}"]`);
+    const preview = previewRef.current;
+    if (!preview) return;
+    const el = preview.querySelector(`[id="${id}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === 'function') {
       (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -363,7 +369,7 @@ export function MarkdownTabBody(props: any) {
               <span className="md-live-title-name">{basename(shownPath)}</span>
             </>
           ) : (
-            'Markdown 预览'
+            'md-live'
           )}
         </div>
         {path && live === 'unavailable' ? (
@@ -511,5 +517,5 @@ export function MarkdownTabTitle(props: any) {
   const { useTabInfo } = props as { useTabInfo?: () => any };
   const info = typeof useTabInfo === 'function' ? useTabInfo() : undefined;
   const path: string = info?.tab?.navigation?.params?.path ?? '';
-  return <span>{basename(path) || 'Markdown'}</span>;
+  return <span>{basename(path) || 'md-live'}</span>;
 }

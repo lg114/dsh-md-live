@@ -1,167 +1,103 @@
 # dsh-md-live
 
-**DSH 独立右侧面板 Markdown 实时预览插件**
+English | [中文](README.zh.md)
 
-边写边渲染，文件被 Agent 改了自动刷新，选中一段可丢回对话继续改。
+A native Markdown preview tab for the DSH Web right Sidebar.
 
-## 特性
+Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the workspace. When the Agent or an external editor changes that file, the panel refreshes itself — no manual reload, no reopening.
 
-- ✅ **独立右侧面板** - 不依赖 better-sidebar，通过 DSH 原生 slot 系统注册
-- ✅ **实时预览** - 编辑时 200ms 防抖自动渲染
-- ✅ **分栏模式** - 左源码 / 右渲染，或带 TOC 的纯预览
-- ✅ **目录导航** - 自动提取标题生成 TOC，点击跳转
-- ✅ **文件热更新** - 监听工作区 `.md` 文件变化，Agent 修改后自动刷新
-- ✅ **选区发送** - 选中内容可一键发送到对话继续编辑
-- ✅ **GFM 支持** - 表格、任务列表、删除线等 GitHub 风格 Markdown
-- ✅ **代码高亮** - 基于 highlight.js 的语法高亮
-- ✅ **主题跟随** - 自动适配 DSH 明暗主题
-- ✅ **导出功能** - 支持导出为 HTML（PDF 计划中）
+## Features
 
-## 安装
+- **A real right-Sidebar tab** — registered through `ctx.sidebarRightTabs` + `sidebar.right.pane.tab`, the same mechanism as the Files and Terminal tabs. It is not a panel shoved into the main column.
+- **Whole-workspace scan** — walks the entire tree from the Session's workspace root, eight listings in flight per level, drawing results level by level: the first level shows up while the rest is still being walked.
+- **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
+- **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
+- **The path is visible** — the header shows `directory/filename` relative to the workspace, with the absolute path in the tooltip. In a narrow panel the directory gives way first; the filename never truncates.
+- **Table of contents** — headings are extracted and their ids injected at render time, so the entries actually scroll.
+- **Safe rendering** — sanitised by DOMPurify (HTML profile): scripts, iframes, event attributes and `javascript:` URLs are stripped.
+- **Syntax highlighting** — highlight.js with 27 languages registered on demand.
+- **Follows the app's settings** — colours, font sizes and font families all read DSH's `--dsw-*` design tokens, so the light/dark appearance, the font-size stepper and any registered third-party theme carry over.
 
-### 从本地安装
+## Install
 
 ```bash
-# 1. 克隆并构建
 git clone <your-repo-url>
 cd dsh-md-live
-pnpm install
-pnpm run build
+npm install
+npm run build
 
-# 2. 在 DSH 中安装
+# install into the web profile
 dsh plugin --profile web add .
 ```
 
-### 从 npm 安装（发布后）
+Restart the harness and reload the page. The `dsh.client` declaration in `package.json` makes the Host serve `lib/client.cjs` as this package's Client half automatically — no extra patch row is needed.
+
+## Usage
+
+1. Click `+` at the top of the right Sidebar and pick **md-live** from the guide.
+2. Pick a `.md` from the file list.
+3. To switch files, click the `←` to the left of the title.
+
+The `N directories skipped (M rules)` line at the bottom of the list opens the rule editor: one directory name per line. Saving rescans immediately; "restore defaults" brings back the built-in list; "show everything" clears the rules so `.md` files inside `node_modules` are listed too.
+
+Rules live in `localStorage` under `dsh-md-live.skip-dirs.v1` — per browser, never written back to the profile config.
+
+## How it works
+
+```
+Client (everything happens here)
+├── tab type        sidebarRightTabs.register({ id, kind, title, guide })
+├── body/title      keyed slots, key = id
+├── file list       remote.workspaceFiles.list   BFS by level + concurrency + progressive
+├── file content    remote.workspaceFiles.readBytes → TextDecoder
+└── live updates    remote.workspaceFiles.changes → $stream + accept()
+
+Host (lib/index.js)
+└── an empty apply(): it registers the package, nothing else
+```
+
+Five constraints worth knowing, each learned the hard way:
+
+1. **`ctx.remote.*` returns a Result envelope**, not a bare value: `{ ok: true, value } | { ok: false, error }`. Reading fields off it yields `undefined` *without throwing* — which is exactly how an empty file list looks like an empty workspace.
+2. **`list` / `readBytes` reject an empty path** with `path is required`. The scan must start from the Session's absolute cwd (the slot's standard prop `useSessions` → `byId[sessionId].cwd`).
+3. **`changes` is a Remote stream**: wrap it in `remote.$stream({ name, open, ended })` and `accept()` every frame, or the uplink window fills and live updates stop silently.
+4. **There is no Host → Client event bridge.** Client plugins can only use `ctx.remote.*` request/response and streams; `ctx.emit` on the Host never reaches the browser. That is why this plugin's Host half is empty.
+5. **A client bundle must be `window.__ModuleLoader__.load({ id, factory })`**: executing the script only registers a factory, and the loader supplies `require` at materialization. Drop that wrapper and the bundle's `require("react")` runs at script scope, failing with `ReferenceError`.
+
+## Development
 
 ```bash
-dsh plugin --profile web add dsh-md-live
+npm run build          # host (tsc) + client (esbuild)
+npm run build:client   # client only
+npm run verify:client  # mount the built bundle in jsdom and run 35 end-to-end checks
+npm run clean
 ```
 
-## 使用
+`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation and highlighting. Run it after changing client code — it is far faster than clicking through the browser.
 
-1. 启动 DSH Web 或桌面端
-2. 在右侧边栏找到 **Markdown Preview** 图标（📄）
-3. 点击打开面板
-4. 通过 Agent 工具 `preview_md` 打开文件，或在面板中手动选择
+## Known limitations
 
-### 编辑模式
+- **Read-only**: `workspaceFiles` has no write API, so there is no editor and no saving.
+- **No auto-open**: with no Host → Client push channel, "open the panel when the Agent writes a `.md`" needs a custom Remote or a session-stream subscription. Not implemented.
+- **Relative images do not resolve**: `![](...)` paths are not rewritten to `dsh-resource://` addresses, so they render broken.
+- **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
+- **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
+- **Bundle size**: about 460 KB (marked + DOMPurify + 27 highlight.js language definitions).
 
-- 点击工具栏 ✏️ 按钮进入编辑模式
-- 左侧编辑源码，右侧实时预览
-- 编辑时 200ms 防抖自动渲染
+## Roadmap
 
-### 预览模式
+- [ ] Lazy-load highlight.js languages to shrink the first payload further
+- [ ] Relative-path images (rewrite to `dsh-resource://`)
+- [ ] Mermaid / KaTeX
+- [ ] Edit and save (needs a write API)
+- [ ] Auto-open when the Agent writes (needs a real Host → Client channel)
 
-- 点击工具栏 👁 按钮切换纯预览
-- 左侧显示 TOC（如果有标题）
-- 右侧显示渲染后的 Markdown
+## Compatibility
 
-### 选区发送
+- DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`)
+- Node.js >= 18 (build time)
+- React >= 18 (supplied by DSH's browser module table, not bundled)
 
-- 在预览模式下选中文本
-- 松开鼠标后自动发送到当前对话
-- 适合「改这一段」的场景，比整文件重写省 token
-
-### 文件热更新
-
-- 插件自动监听工作区的 `.md` 文件
-- Agent 或外部编辑器修改文件后，预览自动刷新
-- 无需手动点击或重新打开
-
-## Agent 工具
-
-插件注册了两个工具供 Agent 调用：
-
-### `preview_md`
-
-在预览面板中打开 Markdown 文件。
-
-```typescript
-{
-  filePath: string  // 相对于工作区的路径
-}
-```
-
-### `export_md`
-
-导出 Markdown 文件为 HTML 或 PDF。
-
-```typescript
-{
-  filePath: string,
-  format: 'html' | 'pdf'
-}
-```
-
-## 配置
-
-在 `cordis.patch.yml` 或 DSH 配置文件中：
-
-```yaml
-md-live-host:
-  workspacePath: /path/to/workspace  # 监听的工作区路径
-  extensions: ['.md', '.markdown']   # 监听的文件扩展名
-  debug: false                        # 启用调试日志
-```
-
-## 开发
-
-```bash
-# 安装依赖
-pnpm install
-
-# 构建 host 端
-pnpm run build:host
-
-# 构建 client 端
-pnpm run build:client
-
-# 完整构建
-pnpm run build
-
-# 清理
-pnpm run clean
-```
-
-## 架构
-
-```
-dsh-md-live
-├── Host (Node.js)
-│   ├── 文件监听 (chokidar)
-│   ├── RPC 网关 (md-live:read-file, md-live:list-files)
-│   └── 工具注册 (preview_md, export_md)
-├── Client (React)
-│   ├── 面板注册 (main + sidebar.panellist slots)
-│   ├── Markdown 渲染 (marked + highlight.js)
-│   ├── TOC 生成
-│   └── 选区处理
-└── 样式 (CSS variables, 明暗主题)
-```
-
-## 兼容性
-
-- DSH >= 0.2.0
-- Node.js >= 18.0.0
-- React >= 18.0.0
-
-## 路线图
-
-- [ ] 流式预览（订阅会话流式输出）
-- [ ] PDF 导出
-- [ ] Mermaid 图表支持
-- [ ] KaTeX 数学公式支持
-- [ ] 相对路径图片预览
-- [ ] 文件树浏览器
-- [ ] 多标签页支持
-
-## 许可证
+## License
 
 MIT
-
-## 相关链接
-
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-- [DSH 插件开发文档](https://deepseek-harness.github.io/deepseek-harness/develop/basic/)
-- [DSH 插件市场](https://dsh-plugin.org/zh)

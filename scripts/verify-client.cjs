@@ -37,9 +37,10 @@ const sandbox = {
   setTimeout,
   clearTimeout,
 };
-sandbox.window = sandbox;
+sandbox.window = dom.window;
 sandbox.globalThis = sandbox;
-sandbox.__ModuleLoader__ = { load: (row) => registered.push(row) };
+dom.window.__ModuleLoader__ = { load: (row) => registered.push(row) };
+sandbox.__ModuleLoader__ = dom.window.__ModuleLoader__;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'client.js' });
 
@@ -309,6 +310,33 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('27) final result replaces the partials:', /3 个文件/.test(progEl.innerHTML) && !progEl.innerHTML.includes('扫描中'));
   listDelay = 0;
   r7.unmount();
+
+  // Sanitising and highlighting run on the rendered HTML/DOM.
+  fileText = [
+    '# 安全',
+    '',
+    '<script>window.__pwned = 1</script>',
+    '<iframe src="https://example.com"></iframe>',
+    '<img src="x" onerror="window.__pwned = 2">',
+    '',
+    '```ts',
+    'const answer: number = 42;',
+    '```',
+  ].join('\n');
+  const safeEl = document.createElement('div');
+  document.body.appendChild(safeEl);
+  const r9 = createRoot(safeEl);
+  r9.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't9', navigation: { params: { path: 'test.md' }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1',
+    useSessions: sessionsHook,
+    api,
+  }));
+  await wait(150);
+  const safeHtml = safeEl.innerHTML;
+  console.log('34) sanitizer strips scripts and frames:', !/<script/i.test(safeHtml) && !/<iframe/i.test(safeHtml) && !/onerror/i.test(safeHtml));
+  console.log('35) code blocks get highlighted:', /data-highlighted="yes"|class="[^"]*hljs/.test(safeHtml));
+  r9.unmount();
 
   r2.unmount();
   r3.unmount();
