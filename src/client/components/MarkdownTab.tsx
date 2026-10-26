@@ -826,7 +826,6 @@ export function MarkdownTabBody(props: any) {
     return recent.filter((item) => known.has(item));
   }, [recent, list.status, list.files]);
 
-  const scannedRoot = list.root ? list.root : t('picker.root');
   const where = list.root ? t('picker.where', { root: list.root }) : t('picker.theWorkspace');
   const scanning = list.status === 'loading' || list.status === 'idle';
   // The header names the file and where it sits, relative to the workspace; the
@@ -1055,7 +1054,16 @@ export function MarkdownTabBody(props: any) {
             ) : (
               <>
                 <div className="md-live-picker-head">
-                  <span>{scannedRoot}</span>
+                  <span className="md-live-picker-root" title={list.root || undefined}>
+                    {list.root ? (
+                      <>
+                        <span className="md-live-picker-root-label">{t('picker.workspaceLabel')}</span>
+                        <span className="md-live-picker-root-path">{list.root}</span>
+                      </>
+                    ) : (
+                      <span className="md-live-picker-root-path">{t('picker.root')}</span>
+                    )}
+                  </span>
                   <span className="md-live-picker-count">
                     {scanning
                       ? t('picker.scanning')
@@ -1082,11 +1090,15 @@ export function MarkdownTabBody(props: any) {
                   <div className="md-live-picker-list">
                     {!query.trim() && recentVisible.length > 0 ? (
                       <>
-                        <div className="md-live-picker-section">{t('picker.recent')}</div>
+                        <div className="md-live-picker-section" role="heading" aria-level={2}>
+                          {t('picker.recent')}
+                        </div>
                         {recentVisible.map((abs) =>
                           renderRow(abs, relativeTo(list.root || root, abs), 'recent:'),
                         )}
-                        <div className="md-live-picker-section">{t('picker.all')}</div>
+                        <div className="md-live-picker-section" role="heading" aria-level={2}>
+                          {t('picker.all')}
+                        </div>
                       </>
                     ) : null}
                     {visible.map((abs) =>

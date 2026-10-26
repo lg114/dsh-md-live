@@ -48,6 +48,7 @@ export const zh = {
   'settings.restore': '恢复默认',
 
   'picker.root': '工作区根目录',
+  'picker.workspaceLabel': '工作区',
   'picker.theWorkspace': '工作区',
   'picker.where': '「{root}」',
   'picker.scanning': '扫描中…',
@@ -146,6 +147,7 @@ export const en: Record<LocaleKey, string> = {
   'settings.restore': 'Restore defaults',
 
   'picker.root': 'Workspace root',
+  'picker.workspaceLabel': 'Workspace',
   'picker.theWorkspace': 'the workspace',
   'picker.where': '“{root}”',
   'picker.scanning': 'Scanning…',

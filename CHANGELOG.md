@@ -51,6 +51,14 @@ Writing from the panel, fenced by the right policy, in the reader's language.
 - The client no longer rewrites path separators before the call: the Host
   normalizes the path, and the tab already holds the absolute spelling the
   workspace listing used.
+- The file picker names the workspace before the absolute path (`工作区` /
+  `Workspace`), so the path in a file list is not left to be guessed. The path
+  ellipsizes; the label never does.
+- The picker's group headings (`最近打开` / `Recently opened` and `全部文件` /
+  `All files`) no longer look like a line of the list. They are sticky bars with
+  the app's ground colour, a hairline underneath, a smaller heavier face and
+  uppercase in Latin locales, so a heading cannot be mistaken for a directory in
+  a path — and it stays on screen while the list scrolls.
 - `verify:host` gained the policy-forwarding check and the denial-message
   check; the client suite now asserts the Session id rides along with a save,
   and grew to 85 checks with the navigation guard (`back arrow`, declined

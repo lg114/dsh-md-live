@@ -930,5 +930,27 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     zhLabels.includes('编辑') && !zhLabels.includes('Edit'));
   r19.unmount();
 
+  // --- the picker names the workspace before its path ---
+  // Seed a recent document so both group headings are on screen.
+  dom.window.localStorage.setItem('dsh-md-live.recent.v1', JSON.stringify([DOC]));
+  const pickEl = document.createElement('div');
+  document.body.appendChild(pickEl);
+  const r20 = createRoot(pickEl);
+  r20.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't20', navigation: { params: { path: '' }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(300);
+  const rootLabel = pickEl.querySelector('.md-live-picker-root-label')?.textContent;
+  const rootPath = pickEl.querySelector('.md-live-picker-root-path')?.textContent;
+  console.log('79) the picker labels the workspace root:', rootLabel === '工作区' && rootPath === 'C:/w');
+
+  const sections = [...pickEl.querySelectorAll('.md-live-picker-section')];
+  console.log('80) the group headings are headings, not rows:',
+    sections.length === 2 &&
+    sections.every((node) => node.getAttribute('role') === 'heading' && node.getAttribute('aria-level') === '2') &&
+    sections.map((node) => node.textContent.trim()).join('|') === '最近打开|全部文件');
+  r20.unmount();
+
   process.exit(0);
 })();

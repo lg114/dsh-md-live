@@ -567,7 +567,20 @@
   color: var(--dsw-alias-label-tertiary, #8b949e);
 }
 
-.md-live-picker-head > span:first-child {
+.md-live-picker-root {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The word before the path: the reader should not have to infer what the
+   absolute path in a file picker is. */
+.md-live-picker-root-label {
+  flex: none;
+}
+
+.md-live-picker-root-path {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -609,10 +622,23 @@
   border-color: var(--dsw-alias-brand-primary, #4d6bfe);
 }
 
+/* Section headings inside the picker: a sticky bar, not one more line of the
+   list. They used to share the rows' size and tone, which made "Recently
+   opened" read like a directory in a path. */
 .md-live-picker-section {
-  padding: 10px 8px 4px;
-  color: var(--dsw-alias-label-tertiary, #8b949e);
-  font-size: var(--dsh-content-font-size-secondary, 13px);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 8px 0 2px;
+  padding: 6px 8px 5px;
+  background: var(--dsw-alias-bg-base, transparent);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+  color: var(--dsw-alias-label-secondary, #57606a);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 .md-live-picker-item {

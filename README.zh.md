@@ -98,7 +98,7 @@ Host（lib/index.js）
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # 只构建 client
 npm run verify         # 两端都跑
-npm run verify:client  # 用 jsdom 挂载真实产物跑 85 项端到端检查
+npm run verify:client  # 用 jsdom 挂载真实产物跑 87 项端到端检查
 npm run verify:host    # 用假 ctx 跑 Host 半身：28 项检查
 npm run clean
 ```

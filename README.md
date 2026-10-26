@@ -98,7 +98,7 @@ Every fallback errs toward refusing: an unresolved lookup is retried as a plain 
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
 npm run verify         # both halves
-npm run verify:client  # mount the built bundle in jsdom and run 85 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 87 end-to-end checks
 npm run verify:host    # run the built Host half against a fake context: 28 checks
 npm run clean
 ```
