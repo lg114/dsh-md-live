@@ -7,7 +7,12 @@ import {
   type MdLiveScanOptions,
   type MdLiveTruncation,
 } from './components/MarkdownTab';
-import { isFollowingEnabled, markdownWriteTarget, resultCallId } from './utils/agent-writes';
+import {
+  isFollowingEnabled,
+  markdownPreviewTarget,
+  markdownWriteTarget,
+  resultCallId,
+} from './utils/agent-writes';
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -190,6 +195,13 @@ function startFollowing(ctx: any): () => void {
         if (frame?.type !== 'event') continue;
         const event = frame.event;
         if (event?.type === 'tool/call') {
+          // An explicit "show me this" is honoured whether or not automatic
+          // following is on: the reader asked for this one.
+          const preview = markdownPreviewTarget(event.data, cwd);
+          if (preview) {
+            show(preview);
+            continue;
+          }
           const write = markdownWriteTarget(event.data, cwd);
           if (write) pending.set(write.callId, write.path);
         } else if (event?.type === 'tool/result') {

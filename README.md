@@ -13,6 +13,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
 - **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
 - **Follows the Agent, even with the panel closed** — when the Agent finishes writing a `.md` inside the workspace, the panel opens on that file. The subscription is plugin-level and fed by `remote.session.follow` for whichever Session is on screen, so it works whether or not a tab was already open. The switch waits for `tool/result` rather than `tool/call`, so the file is read after the write landed instead of before it. One checkbox in the panel settings turns it off.
+- **The Agent can ask, not just write** — a `preview_md` tool lets it put a document on screen on request ("show me the notes"). It is honoured even when automatic following is off, because that one was asked for.
 - **The path is visible** — the header shows `directory/filename` relative to the workspace, with the absolute path in the tooltip. In a narrow panel the directory gives way first; the filename never truncates.
 - **Images beside the document** — a relative `![](...)` path is resolved against the file's own directory and served by the Host's file endpoint, so a screenshot sitting next to the `.md` actually shows up.
 - **Links do what they look like** — a link to another `.md` opens it in this tab, `#anchor` scrolls inside the document, and an `https://` link goes to the browser instead of navigating the app away.
@@ -62,7 +63,7 @@ Client (everything happens here)
 └── following       remote.session.follow → tool/result → openRightbar + openTab  (plugin-level)
 
 Host (lib/index.js)
-└── an empty apply(): it registers the package, nothing else
+└── preview_md tool (optional): the Agent's only way to ask the panel for a file
 ```
 
 Six constraints worth knowing, each learned the hard way:
@@ -79,17 +80,22 @@ Six constraints worth knowing, each learned the hard way:
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
-npm run verify:client  # mount the built bundle in jsdom and run 64 end-to-end checks
+npm run verify         # both halves
+npm run verify:client  # mount the built bundle in jsdom and run 65 end-to-end checks
+npm run verify:host    # run the built Host half against a fake context: 9 checks
 npm run clean
 ```
 
 `verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar, front matter, and following the Agent's writes. Run it after changing client code — it is far faster than clicking through the browser.
+
+`verify:host` imports the built Host half and calls `apply` with a fake cordis context: what it injects, the tool's schema, the arguments it refuses, and that a registry which throws costs the tool rather than the plugin. It cannot exercise a real Agent turn — that still needs the browser.
 
 ## Known limitations
 
 - **Read-only**: `workspaceFiles` has no write API, so there is no editor and no saving.
 - **Following reads tool arguments, not the filesystem**: a `.md` the Agent rewrites through `bash` (`cat > x.md`, a heredoc) is not followed, because that call carries no path. `write`, `edit` and `str_replace_editor` are.
 - **Following only watches the Session on screen**: a write in a background Session opens nothing, because that is not the conversation the reader is in.
+- **`preview_md` does not verify the path**: the tool carries the request, and the panel resolves and reads it, so a wrong path surfaces in the panel rather than in the tool result. Resolving in both places would be two answers to one question, and the panel's is the one that gets used.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
 - **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
 - **Bundle size**: about 497 KB (marked + DOMPurify + 27 highlight.js language definitions).
@@ -99,12 +105,12 @@ npm run clean
 - [ ] Lazy-load highlight.js languages to shrink the first payload further
 - [ ] Mermaid / KaTeX
 - [ ] Edit and save (needs a write API)
-- [ ] A `preview_md` Agent tool, so the Agent can show a file deliberately rather than only after writing one (needs a Host-side tool registration; the client half already listens)
 
 ## Compatibility
 
 - DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`)
 - `remote.session.openWorkspacePath` / `canOpenWorkspacePath` for the "open elsewhere" actions; the buttons hide themselves when the Host has no desktop to open them on
+- `@deepseek-ai/dsh-tools` (pinned to the Host's own `0.2.1-rc.2`) for `preview_md`; the tool is skipped with a warning when the package cannot be loaded
 - Node.js >= 18 (build time)
 - React >= 18 (supplied by DSH's browser module table, not bundled)
 

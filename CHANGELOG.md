@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-26
+
+The Agent can now ask for a document instead of only producing one.
+
+### Added
+
+- `preview_md`, an Agent tool registered by the Host half: "show me the notes"
+  now puts that file in the panel, with nothing written first. The Client reacts
+  to the `tool/call` frame, so the tool's own body only carries the request. It
+  is honoured even when automatic following is switched off — that checkbox
+  governs what happens on its own, not what was asked for.
+- `npm run verify:host`, nine checks that run the built Host half against a fake
+  cordis context: what it injects, the tool's schema, the arguments it refuses,
+  and that a registry which throws costs the tool rather than the plugin.
+
+### Changed
+
+- The Host half is no longer an empty `apply()`. It registers the tool through
+  `ctx.inject(['tools'], …)`, so a composition without a tool registry still
+  loads the plugin, and the `@deepseek-ai/dsh-tools` import is dynamic and
+  guarded: a missing or mismatched package warns and skips.
+- `npm run verify` now runs both halves.
+
+### Notes
+
+- The tool resolves no paths. The panel already answers that question, and a
+  second answer here could disagree with the one the panel then uses.
+
 ## [0.6.0] - 2026-10-26
 
 The tab stops waiting to be opened and starts following the Agent.
@@ -157,6 +185,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.7.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.7.0
 [0.6.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.6.0
 [0.5.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.5.0
 [0.4.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.4.0

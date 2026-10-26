@@ -673,6 +673,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c4' } } } } });
   await wait(160);
   console.log('57) a write after opting out opens nothing:', !openedPaths().includes(ROOT + '/docs/off.md'));
+
+  // An explicit request is not automatic behaviour, so the checkbox does not
+  // silence it: the reader asked for this one.
+  followQueue.push({
+    type: 'event',
+    event: { type: 'tool/call', data: { callId: 'c5', name: 'preview_md', arguments: JSON.stringify({ path: 'docs/shown.md' }) } },
+  });
+  await wait(140);
+  console.log('58) preview_md opens the file even with following off:',
+    openedPaths().includes(ROOT + '/docs/shown.md'));
   r14.unmount();
   dom.window.localStorage.removeItem('dsh-md-live.follow-writes.v1');
 

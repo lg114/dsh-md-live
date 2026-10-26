@@ -13,6 +13,7 @@ DSH Web 右侧栏的原生 Markdown 预览标签页。
 - **过滤规则可编辑** —— 默认跳过 `node_modules`、`.git`、`dist` 等目录；规则在界面上直接改、存在浏览器里，也可以一键全量扫描。
 - **实时刷新** —— 基于 `remote.workspaceFiles.changes` 的文件监听，保存即更新；只有监听不可用时才出现手动刷新按钮。
 - **跟随 Agent（面板没开也会弹出来）** —— Agent 在工作区里写完一个 `.md`，面板直接打开那个文件。订阅是插件级的，靠 `remote.session.follow` 跟着当前在屏的会话，所以不管之前有没有开着 tab 都生效。切换等的是 `tool/result` 而不是 `tool/call`，读到的是写完之后的内容而不是写之前的。面板设置里一个复选框可以关掉。
+- **Agent 可以主动「拿给你看」** —— 注册了一个 `preview_md` 工具，Agent 被要求「打开/看看某个 md」时可以直接把文件推到面板上。它不受上面那个复选框影响：这一次是用户明确要求的。
 - **路径可见** —— 头部显示 `目录/文件名`（相对工作区），窄面板时目录先省略，文件名始终完整；悬停看绝对路径。
 - **文档旁边的图能显示** —— 相对路径的 `![](...)` 会按文件自身所在目录解析，再由 Host 的文件端点提供，和 `.md` 放在一起的截图真的能显示出来。
 - **链接点得动** —— 指向另一个 `.md` 的链接在当前 tab 打开它，`#锚点` 在文档内滚动，`https://` 链接交给浏览器而不是把整个应用导航走。
@@ -62,7 +63,7 @@ Client（全部能力都在这里）
 └── 跟随写入        remote.session.follow → tool/result → openRightbar + openTab（插件级）
 
 Host（lib/index.js）
-└── 空的 apply()：注册这个包本身，没有运行时逻辑
+└── preview_md 工具（可选）：Agent 唯一能「请求面板打开文件」的通道
 ```
 
 六个必须知道的约束，都是踩过的坑：
@@ -79,17 +80,22 @@ Host（lib/index.js）
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # 只构建 client
-npm run verify:client  # 用 jsdom 挂载真实产物跑 64 项端到端检查
+npm run verify         # 两端都跑
+npm run verify:client  # 用 jsdom 挂载真实产物跑 65 项端到端检查
+npm run verify:host    # 用假 ctx 跑 Host 半身：9 项检查
 npm run clean
 ```
 
 `verify:client` 会模拟 DSH 的模块加载器（注册 → 物化 → apply），再在 jsdom 里挂载 tab body，覆盖：注册与 slot key、Remote 信封解包、目录递归、过滤规则与持久化、渐进渲染、热更新、卸载清理、TOC 锚点、净化、代码高亮、图片与链接解析、外部打开调用、搜索、最近打开、目录折叠、阅读设置、代码工具栏、frontmatter、跟随 Agent 写入。改完 client 代码先跑它，比在浏览器里点快得多。
+
+`verify:host` 直接 import 构建好的 Host 半身、用一个假 cordis ctx 调 `apply`：注入了什么、工具的 schema、会拒绝哪些参数，以及「注册抛错时只损失工具、不损失插件」。它跑不了真实的 Agent 轮次——那仍然要在浏览器里点。
 
 ## 已知限制
 
 - **只读**：`workspaceFiles` 没有写入接口，所以没有编辑器，也不能保存修改。
 - **跟随靠的是工具参数，不是文件系统**：Agent 用 `bash`（`cat > x.md`、heredoc）改的 `.md` 不会被跟随，因为那次调用里没有路径。`write`、`edit`、`str_replace_editor` 会。
 - **只跟随在屏的会话**：后台会话里的写入不会弹面板，因为那不是读者正在进行的对话。
+- **`preview_md` 不校验路径**：工具只负责把请求带过去，解析和读取由面板做，所以路径错了会在面板里报出来而不是在工具结果里。两边都解析等于对同一个问题给两个答案，而实际生效的是面板那个。
 - **过滤规则只匹配目录名**：任意层级、忽略大小写，不支持 `docs/archive` 这类路径通配。
 - **没有 Mermaid / KaTeX**：`$$...$$` 和 ```mermaid 会当普通文本渲染。
 - **体积**：client bundle 约 497 KB（marked + DOMPurify + 27 种语言的高亮定义）。
@@ -99,12 +105,12 @@ npm run clean
 - [ ] 代码高亮语言按需懒加载，进一步减小首包
 - [ ] Mermaid / KaTeX
 - [ ] 编辑并保存（需要写入 API）
-- [ ] `preview_md` Agent 工具：让 Agent 主动把某个文件推给面板，而不是只能靠「写完」触发（需要 Host 侧注册工具；客户端那半已经就绪）
 
 ## 兼容性
 
 - DSH >= 0.2.0（依赖 `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`）
 - 「交给别处打开」依赖 `remote.session.openWorkspacePath` / `canOpenWorkspacePath`；Host 没有桌面可打开时按钮会自动隐藏
+- `preview_md` 依赖 `@deepseek-ai/dsh-tools`（锁定到 Host 自带的 `0.2.1-rc.2`）；加载不到时只警告并跳过这个工具，不影响插件
 - Node.js >= 18（构建期）
 - React >= 18（由 DSH 的浏览器模块表提供，不打包进产物）
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-md-live",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "DSH native right-tab Markdown preview: lists the workspace, live-refreshes on file change, follows the app theme tokens",
   "type": "module",
   "main": "lib/index.js",
@@ -24,6 +24,8 @@
     "build:client": "node esbuild.config.js",
     "dev": "npm run build:host && npm run build:client",
     "verify:client": "node scripts/verify-client.cjs",
+    "verify:host": "node scripts/verify-host.cjs",
+    "verify": "npm run verify:host && npm run verify:client",
     "clean": "rimraf lib",
     "prepublishOnly": "npm run clean && npm run build"
   },
@@ -46,6 +48,7 @@
     "react-dom": ">=18.0.0"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "dompurify": "^3.0.6",
     "highlight.js": "^11.9.0",
     "marked": "^9.1.0"

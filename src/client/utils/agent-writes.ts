@@ -13,6 +13,9 @@ const WRITE_TOOLS = new Set(['write', 'edit']);
 const EDITOR_TOOL = 'str_replace_editor';
 const EDITOR_WRITE_COMMANDS = new Set(['create', 'str_replace', 'insert']);
 
+/** The tool the Host half registers so the Agent can ask the panel for a file. */
+const PREVIEW_TOOL = 'preview_md';
+
 /** Where the reader's "follow the Agent's writes" choice is remembered. */
 export const FOLLOW_STORAGE_KEY = 'dsh-md-live.follow-writes.v1';
 
@@ -98,4 +101,27 @@ export function markdownWriteTarget(data: any, cwd: string): AgentWrite | null {
 export function resultCallId(data: any): string {
   const id = data?.message?.source?.callId;
   return id === undefined ? '' : String(id);
+}
+
+/**
+ * Read a `preview_md` call as a request to put one document on screen.
+ *
+ * This is the Agent asking, not the Agent acting: the file already exists, so
+ * there is nothing to wait for and the call itself is the whole signal. Unlike
+ * a write, it is honoured even when following is switched off — the reader
+ * asked for this one.
+ *
+ * @param data - the event's `data` payload: `{ callId, name, arguments }`.
+ * @param cwd - the Session's workspace root, which relative paths resolve
+ *   against.
+ * @returns the file to show, or `null` for any other call.
+ */
+export function markdownPreviewTarget(data: any, cwd: string): string | null {
+  if (typeof data?.name !== 'string' || data.name !== PREVIEW_TOOL) return null;
+  const args = parseArguments(data?.arguments);
+  if (!args) return null;
+  const declared = typeof args.path === 'string' ? args.path : '';
+  if (declared.trim() === '') return null;
+  const resolved = resolvePath(cwd, declared);
+  return resolved && isMarkdownPath(resolved) ? resolved : null;
 }
