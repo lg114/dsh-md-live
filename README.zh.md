@@ -21,7 +21,7 @@ DSH Web 右侧栏的原生 Markdown 预览标签页。
 ## 安装
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/lg114/dsh-md-live.git
 cd dsh-md-live
 npm install
 npm run build

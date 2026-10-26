@@ -21,7 +21,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 ## Install
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/lg114/dsh-md-live.git
 cd dsh-md-live
 npm install
 npm run build

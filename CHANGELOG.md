@@ -66,5 +66,5 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
-[0.3.0]: https://github.com/yourusername/dsh-md-live/releases/tag/v0.3.0
-[0.1.0]: https://github.com/yourusername/dsh-md-live/releases/tag/v0.1.0
+[0.3.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.3.0
+[0.1.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.1.0

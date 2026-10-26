@@ -89,11 +89,6 @@
   color: var(--dsw-alias-label-primary, #1f2328);
 }
 
-.md-live-icon {
-  color: var(--dsw-alias-label-tertiary, #8b949e);
-  font-size: var(--dsh-content-font-size-secondary, 13px);
-}
-
 .md-live-actions {
   display: flex;
   align-items: center;
@@ -137,31 +132,6 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-/* Editor (reserved for the future write path) */
-
-.md-live-editor {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  border-right: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
-}
-
-.md-live-textarea {
-  flex: 1;
-  padding: 16px;
-  border: 0;
-  outline: none;
-  resize: none;
-  background: var(--dsw-alias-bg-base, transparent);
-  color: var(--dsw-alias-label-primary, #1f2328);
-  font-family: var(--ds-font-family-code, var(--dsh-font-family-code-default, ui-monospace, monospace));
-  font-size: var(--dsh-code-font-size, 12px);
-  line-height: 1.6;
-  tab-size: 2;
 }
 
 /* Preview */
