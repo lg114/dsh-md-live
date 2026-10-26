@@ -104,9 +104,10 @@ npm run clean
 
 ## 路线图
 
-- [ ] 代码高亮语言按需懒加载，进一步减小首包
 - [ ] Mermaid
 - [ ] 编辑并保存（需要写入 API）
+
+「按需懒加载高亮语言」不在这个列表里，因为在这里做不了：客户端产物一个 module id 只对应一个文件，经 `__ModuleLoader__.load({ id, factory })` 加载，没有地方放第二个 chunk。改成精简语言表也实测过——27 种砍到 15 种只省 133 KB，代价是丢掉 c、cpp、csharp、php、ruby、swift、kotlin、lua、perl、r、ini、scss，同样不划算。
 
 ## 兼容性
 

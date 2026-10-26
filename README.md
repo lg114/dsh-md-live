@@ -104,9 +104,15 @@ npm run clean
 
 ## Roadmap
 
-- [ ] Lazy-load highlight.js languages to shrink the first payload further
 - [ ] Mermaid
 - [ ] Edit and save (needs a write API)
+
+Lazy-loading the highlight.js languages is not on this list because it cannot
+work here: a Client bundle is one file per module id, loaded through
+`__ModuleLoader__.load({ id, factory })`, so there is nowhere to put a second
+chunk. Trimming the language list was measured instead — 27 languages down to 15
+saves 133 KB and costs c, cpp, csharp, php, ruby, swift, kotlin, lua, perl, r,
+ini and scss — and it was not worth it either.
 
 ## Compatibility
 
