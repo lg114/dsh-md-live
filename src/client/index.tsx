@@ -64,6 +64,7 @@ export const inject = [
   'sidebarRight',
   'remote',
   'remote.workspaceFiles',
+  'remote.session',
 ];
 
 /**
@@ -214,6 +215,29 @@ export function apply(ctx: any) {
         throw new Error(`目录「${base}」里读不到任何条目`);
       }
       return { root: base, files, truncatedBy, limits, skippedDirs };
+    },
+    openExternal: (url: string) => {
+      try {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } catch (err) {
+        console.error('[dsh-md-live] openExternal failed:', err);
+      }
+    },
+    openPath: async (path: string, action?: 'reveal') => {
+      // The Host owns the desktop: it hands the path to the OS default app, or
+      // reveals it in the file manager. Nothing here touches the filesystem.
+      const request: any = { path };
+      if (action) request.action = action;
+      unwrapRemote<any>(await ctx.remote.session.openWorkspacePath(request));
+    },
+    canOpenPath: async () => {
+      // False when the browser is attached over the network: the Host has no
+      // desktop to open anything on, and a dead button is worse than none.
+      try {
+        return Boolean(unwrapRemote<any>(await ctx.remote.session.canOpenWorkspacePath()));
+      } catch {
+        return false;
+      }
     },
     watch: (sessionId: string, path: string, signal: AbortSignal) => {
       // `changes` is a Remote stream: items must be acknowledged with accept(),

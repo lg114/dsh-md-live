@@ -103,6 +103,119 @@ export function renderMarkdown(content: string): string {
   return marked.parse(content) as string;
 }
 
+/** Whether a path names a document this tab can render itself. */
+export function isMarkdownPath(path: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(path);
+}
+
+/**
+ * Collapse `.` and `..` without touching the filesystem.
+ *
+ * @param path - a `/`-separated path, absolute or relative.
+ * @returns the same path with empty, `.` and backtracked segments removed.
+ */
+function normalizeSegments(path: string): string {
+  const parts = path.split('/');
+  const drive = /^[a-z]:$/i.test(parts[0] ?? '') ? parts.shift()! : null;
+  const absolute = drive !== null || parts[0] === '';
+  const stack: string[] = [];
+  for (const part of parts) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  const joined = stack.join('/');
+  if (drive !== null) return `${drive}/${joined}`;
+  return absolute ? `/${joined}` : joined;
+}
+
+/**
+ * Resolve one authored destination against the document that contains it.
+ *
+ * A Markdown file refers to its neighbours relatively (`./img/a.png`,
+ * `../guide.md`), but this tab opens one file at a time with no base URL of its
+ * own, so the browser would resolve those against the page and 404. The
+ * document's own absolute path is the base that makes them mean what the author
+ * meant.
+ *
+ * @param docPath - the containing document, as an absolute path.
+ * @param destination - the raw `href` or `src` value.
+ * @returns an absolute path, or `null` when the destination is not a workspace
+ *   path (a URL scheme, a protocol-relative URL, or empty).
+ */
+export function resolveDocPath(docPath: string, destination: string): string | null {
+  let value = destination.trim();
+  if (!value) return null;
+  const cut = value.search(/[?#]/);
+  if (cut !== -1) value = value.slice(0, cut);
+  if (!value) return null;
+  try {
+    value = decodeURIComponent(value);
+  } catch {
+    /* a malformed escape is kept as written */
+  }
+  // Any scheme but a Windows drive is not a workspace path.
+  if (/^[a-z][a-z\d+.-]*:/i.test(value) && !/^[a-z]:[\\/]/i.test(value)) return null;
+  const normalized = value.replace(/\\/g, '/');
+  if (normalized.startsWith('//')) return null;
+  const absolute = normalized.startsWith('/') || /^[a-z]:\//i.test(normalized);
+  const base = absolute ? '' : docPath.replace(/\\/g, '/').replace(/[^/]*$/, '');
+  return normalizeSegments(`${base}${normalized}`);
+}
+
+/**
+ * Build the Host URL that serves one workspace file's bytes.
+ *
+ * This is the same address the official document preview uses: the web server
+ * answers `api/file?path=<absolute path>` with the file itself, which is what
+ * lets an `<img>` show a PNG that lives next to the Markdown.
+ *
+ * @param base - the page's base URI.
+ * @param path - an absolute path in the Host filesystem.
+ * @returns the URL, or `null` when the transport or path cannot carry one.
+ */
+export function mediaUrl(base: string, path: string): string | null {
+  if (!base) return null;
+  if (!/^https?:/i.test(base) && !base.startsWith('dsh-app://app/')) return null;
+  if (!/^([a-z]:[\\/]|\/)/i.test(path) || /^[/\\]{2}/.test(path)) return null;
+  if (/[\u0000-\u001f\u007f]/.test(path)) return null;
+  try {
+    return new URL(`api/file?path=${encodeURIComponent(path)}`, base).href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Point a rendered document's relative images at the Host's file endpoint.
+ *
+ * Runs on the HTML string rather than the live DOM: the browser starts fetching
+ * images the moment the markup lands, so a post-mount fixup would show a broken
+ * image first and a working one second. Images that are already absolute,
+ * remote, or unparseable are left exactly as written.
+ *
+ * @param html - rendered Markdown.
+ * @param docPath - the containing document, as an absolute path.
+ * @param base - the page's base URI.
+ * @returns the same HTML with resolvable `src` values rewritten.
+ */
+export function resolveImageUrls(html: string, docPath: string, base: string): string {
+  if (!html || !docPath || !base) return html;
+  return html.replace(/<img\b[^>]*>/gi, (tag) =>
+    tag.replace(/(\ssrc\s*=\s*)(["'])(.*?)\2/i, (whole, lead: string, quote: string, value: string) => {
+      // `marked` escapes `&` inside attribute values; undo that before parsing.
+      const destination = value.replace(/&amp;/gi, '&');
+      const absolute = resolveDocPath(docPath, destination);
+      if (!absolute) return whole;
+      const url = mediaUrl(base, absolute);
+      return url ? `${lead}${quote}${url}${quote}` : whole;
+    }),
+  );
+}
+
 export function extractTOC(content: string): TOCItem[] {
   const headings: TOCItem[] = [];
   const used = new Map<string, number>();
@@ -171,6 +284,12 @@ export function sanitizeHtml(html: string): string {
   return purifier.sanitize(html, {
     USE_PROFILES: { html: true },
     ADD_ATTR: ['id', 'target', 'rel'],
+    // DOMPurify's default scheme list knows nothing about the addresses this
+    // app actually serves files from. Without these two, a rewritten image src
+    // is stripped as an unknown scheme and the picture silently disappears —
+    // and it only happens in the desktop shell, never in a browser.
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:https?|mailto|tel|callto|sms|cid|xmpp|dsh-app|dsh-resource):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
   });
 }
 

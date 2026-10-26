@@ -34,6 +34,9 @@ const sandbox = {
   AbortSignal,
   Uint8Array,
   ArrayBuffer,
+  URL: dom.window.URL,
+  requestAnimationFrame: (cb) => setTimeout(cb, 0),
+  cancelAnimationFrame: (id) => clearTimeout(id),
   setTimeout,
   clearTimeout,
 };
@@ -90,7 +93,11 @@ const tree = (dir) => WORKSPACE[dir] ?? { path: dir, entries: [] };
 // the absolute workspace root the Remote requires.
 const sessionsHook = (selector) => selector({ byId: { s1: { cwd: 'C:\\w' } } });
 
-const captured = { tabType: null, body: null, title: null, opens: [] };
+const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [] };
+dom.window.open = (url) => {
+  captured.external.push(url);
+  return null;
+};
 const fakeCtx = {
   effect(fn) { const d = fn(); return () => { if (typeof d === 'function') d(); }; },
   sidebarRightTabs: { register(def) { captured.tabType = def; return () => {}; } },
@@ -114,6 +121,13 @@ const fakeCtx = {
           disposed += 1;
         },
       };
+    },
+    session: {
+      canOpenWorkspacePath: async () => ({ ok: true, value: true }),
+      openWorkspacePath: async (request) => {
+        captured.paths.push(request);
+        return { ok: true, value: { opened: true } };
+      },
     },
     workspaceFiles: {
       readBytes: async () => ({ ok: true, value: { data: new TextEncoder().encode(fileText) } }),
@@ -165,7 +179,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
 
   const fileViewButtons = [...rootEl.querySelectorAll('.md-live-actions button')].map((b) => b.textContent);
-  console.log('6d) no manual refresh while live:', fileViewButtons.length === 0, JSON.stringify(fileViewButtons));
+  console.log('6d) no manual refresh while live:', !fileViewButtons.includes('刷新'), JSON.stringify(fileViewButtons));
 
   fileText = '# 标题一\n\n改写后的正文\n\n## 小节\n\n- a\n';
   await wait(200);
@@ -337,6 +351,153 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('34) sanitizer strips scripts and frames:', !/<script/i.test(safeHtml) && !/<iframe/i.test(safeHtml) && !/onerror/i.test(safeHtml));
   console.log('35) code blocks get highlighted:', /data-highlighted="yes"|class="[^"]*hljs/.test(safeHtml));
   r9.unmount();
+
+  // Relative images, in-document navigation, and the Host's own opener.
+  const DOC = ROOT + '/GitHub/dsh-md-live/README.md';
+  fileText = [
+    '# 图与链接',
+    '',
+    '![本地](./img/p.png)',
+    '',
+    '![远程](https://e.com/r.png)',
+    '',
+    '[另一篇](./other.md)',
+    '',
+    '[外链](https://example.com/x)',
+    '',
+    '[锚点](#图与链接)',
+  ].join('\n');
+  const docEl = document.createElement('div');
+  document.body.appendChild(docEl);
+  const r10 = createRoot(docEl);
+  r10.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't10', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(180);
+  const docHtml = docEl.innerHTML;
+  const media = 'http://localhost/api/file?path=' + encodeURIComponent(ROOT + '/GitHub/dsh-md-live/img/p.png');
+  console.log('36) relative image rewritten to the file endpoint:', docHtml.includes(media));
+  console.log('37) remote image left alone:', docHtml.includes('src="https://e.com/r.png"'));
+
+  const anchors = [...docEl.querySelectorAll('.markdown-body a')];
+  const opensBefore = captured.opens.length;
+  const externalBefore = captured.external.length;
+  anchors[0].click();
+  await wait(20);
+  const linkOpen = captured.opens[captured.opens.length - 1];
+  console.log('38) internal .md link opens the tab:',
+    captured.opens.length === opensBefore + 1 &&
+    linkOpen[1]?.params?.path === ROOT + '/GitHub/dsh-md-live/other.md');
+  anchors[1].click();
+  await wait(20);
+  console.log('39) external link handed to the browser:',
+    captured.external.length === externalBefore + 1 &&
+    captured.external[captured.external.length - 1] === 'https://example.com/x');
+  const opensBeforeAnchor = captured.opens.length;
+  anchors[2].click();
+  await wait(20);
+  console.log('40) in-page anchor stays in the tab:', captured.opens.length === opensBeforeAnchor);
+
+  const headerButtons = [...docEl.querySelectorAll('.md-live-actions button')];
+  const openBtn = headerButtons.find((b) => b.getAttribute('title') === '用系统默认应用打开');
+  const revealBtn = headerButtons.find((b) => b.getAttribute('title') === '在文件管理器中显示');
+  console.log('41) header offers the Host opener:', Boolean(openBtn) && Boolean(revealBtn));
+  if (openBtn) {
+    openBtn.click();
+    await wait(30);
+  }
+  console.log('41b) opener passes the absolute path:',
+    captured.paths.some((p) => p.path === DOC && p.action === undefined));
+  if (revealBtn) {
+    revealBtn.click();
+    await wait(30);
+  }
+  console.log('42) reveal asks for the file manager:',
+    captured.paths.some((p) => p.path === DOC && p.action === 'reveal'));
+
+  console.log('43) outline marks the heading in view:', Boolean(docEl.querySelector('.md-live-toc-item.is-active')));
+  const tocToggle = docEl.querySelector('.md-live-toc-toggle');
+  if (tocToggle) {
+    tocToggle.click();
+    await wait(40);
+  }
+  console.log('43b) folding hides the list and is remembered:',
+    Boolean(docEl.querySelector('.md-live-toc.is-collapsed')) &&
+    !docEl.querySelector('.md-live-toc-nav') &&
+    dom.window.localStorage.getItem('dsh-md-live.toc-collapsed.v1') === 'true');
+  const tocToggleAgain = docEl.querySelector('.md-live-toc-toggle');
+  if (tocToggleAgain) {
+    tocToggleAgain.click();
+    await wait(40);
+  }
+  dom.window.localStorage.removeItem('dsh-md-live.toc-collapsed.v1');
+
+  const settingsBtn = headerButtons.find((b) => b.getAttribute('title') === '阅读设置');
+  if (settingsBtn) {
+    settingsBtn.click();
+    await wait(40);
+  }
+  const popover = docEl.querySelector('.md-live-settings');
+  console.log('44) reading settings open:', Boolean(popover));
+  if (popover) {
+    const sizeSelect = popover.querySelectorAll('select')[0];
+    sizeSelect.value = '16';
+    sizeSelect.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    await wait(60);
+    const preview = docEl.querySelector('.md-live-preview');
+    console.log('44b) size applies to the document:',
+      preview.className.includes('has-reading') && (preview.getAttribute('style') || '').includes('16px'));
+    const stored = JSON.parse(dom.window.localStorage.getItem('dsh-md-live.reading.v1'));
+    console.log('44c) choice is remembered:', stored.fontSize === 16);
+  }
+  r10.unmount();
+  dom.window.localStorage.removeItem('dsh-md-live.reading.v1');
+
+  // The picker: search narrows it, and the last document opened is a shortcut.
+  dom.window.localStorage.removeItem('dsh-md-live.skip-dirs.v1');
+  const listEl = document.createElement('div');
+  document.body.appendChild(listEl);
+  const r11 = createRoot(listEl);
+  r11.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't11', navigation: { params: {}, revision: 0 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(200);
+  const rows = () => [...listEl.querySelectorAll('.md-live-picker-item')].map((b) => b.getAttribute('title'));
+  console.log('45) recent document listed first:',
+    listEl.innerHTML.includes('最近打开') && rows()[0] === 'GitHub/dsh-md-live/README.md');
+  const search = listEl.querySelector('.md-live-search');
+  if (search) {
+    // React tracks the DOM value, so a plain assignment is invisible to it;
+    // going through the prototype setter is what a real keystroke looks like.
+    const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+    setValue.call(search, 'deep');
+    search.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await wait(60);
+  }
+  console.log('45b) search narrows the list:', JSON.stringify(rows()) === JSON.stringify(['A/B/C/deep.md']), JSON.stringify(rows()));
+  r11.unmount();
+  dom.window.localStorage.removeItem('dsh-md-live.recent.v1');
+
+  // The desktop shell serves the app from a custom scheme; a rewritten image
+  // address has to survive both the URL build and the sanitiser there.
+  const baseTag = document.createElement('base');
+  baseTag.setAttribute('href', 'dsh-app://app/');
+  document.head.appendChild(baseTag);
+  fileText = '# 桌面壳\n\n![本地](./img/p.png)\n';
+  const shellEl = document.createElement('div');
+  document.body.appendChild(shellEl);
+  const r12 = createRoot(shellEl);
+  r12.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't12', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(150);
+  console.log('46) desktop-shell image addresses survive sanitising:',
+    shellEl.innerHTML.includes('dsh-app://app/api/file?path='));
+  r12.unmount();
+  baseTag.remove();
 
   r2.unmount();
   r3.unmount();

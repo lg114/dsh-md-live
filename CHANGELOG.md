@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-26
+
+The document became something you read rather than something you look at:
+its own images resolve, its links navigate, and the panel can hand the file
+back to the desktop.
+
+### Added
+
+- Relative images resolve against the document's own directory and are served
+  through the Host's `api/file` endpoint — the same address the official
+  document preview uses. Remote and absolute URLs are left untouched.
+- Links inside the document are handled by the tab: another `.md` opens in this
+  tab, `#anchor` scrolls in place, `https://` and `mailto:` go to the browser,
+  and a relative link to anything else is handed to the Host's default
+  application.
+- Header actions that hand the file to the OS: open with the default
+  application, or reveal it in the file manager
+  (`remote.session.openWorkspacePath`). Both hide themselves when
+  `canOpenWorkspacePath` reports that the Host has no desktop.
+- Search over the workspace list by path fragment, and the last eight documents
+  opened as a shortcut section above the full list.
+- The outline marks the heading currently in view while scrolling, and folds to
+  a 28px rail; the fold state is remembered per browser.
+- Reading settings — body size, leading and measure — in a header popover,
+  remembered per browser. Every default is "follow the app", so the Markdown
+  tokens stay in charge until the reader chooses otherwise.
+
+### Changed
+
+- The picker counts matches while a search is active (`3 / 12 个文件`) instead of
+  showing only the total.
+- `verify:client` grew from 35 to 53 checks, covering the new paths.
+
 ## [0.3.0] - 2026-10-24
 
 Reworked into a native right-Sidebar tab. The 0.1.0 shape — a `main` panel
@@ -66,5 +99,6 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.4.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.4.0
 [0.3.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.3.0
 [0.1.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.1.0

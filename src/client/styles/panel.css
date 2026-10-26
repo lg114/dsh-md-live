@@ -94,6 +94,7 @@
   align-items: center;
   gap: 2px;
   flex: none;
+  position: relative;
 }
 
 .md-live-btn {
@@ -116,6 +117,62 @@
 
 .md-live-btn:active {
   background: var(--dsw-alias-interactive-bg-active, rgba(0, 0, 0, 0.08));
+}
+
+/* Icon-only actions carry their meaning in the tooltip and the label. */
+.md-live-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* Reading settings: a small popover hanging off the action row */
+
+.md-live-settings {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 208px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: 0 6px 24px var(--dsw-alias-shadow-popover, rgba(0, 0, 0, 0.12));
+}
+
+.md-live-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--dsw-alias-label-secondary, #656d76);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}
+
+.md-live-settings-row select {
+  flex: none;
+  min-width: 96px;
+  padding: 3px 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-base, transparent);
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-family: inherit;
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  outline: none;
+}
+
+.md-live-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
 }
 
 /* Content area */
@@ -162,11 +219,47 @@
   padding: 12px 0;
 }
 
+/* Folded away: the column keeps a rail so the outline is still reachable. */
+.md-live-toc.is-collapsed {
+  width: 28px;
+}
+
+.md-live-toc-container.is-collapsed {
+  padding: 10px 0;
+}
+
+.md-live-toc-container.is-collapsed .md-live-toc-title {
+  padding: 0;
+  justify-content: center;
+}
+
 .md-live-toc-title {
-  padding: 0 14px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 8px 8px 14px;
   font-size: var(--dsh-content-font-size-secondary, 13px);
   font-weight: 500;
   color: var(--dsw-alias-label-tertiary, #8b949e);
+}
+
+.md-live-toc-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.md-live-toc-toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--dsw-alias-label-primary, #1f2328);
 }
 
 .md-live-toc-nav {
@@ -193,12 +286,32 @@
   color: var(--dsw-alias-label-primary, #1f2328);
 }
 
+/* Where the reader actually is, marked the way the app marks a selection. */
+.md-live-toc-item.is-active {
+  border-left-color: var(--dsw-alias-brand-primary, #4d6bfe);
+  color: var(--dsw-alias-brand-primary, #4d6bfe);
+  font-weight: 500;
+}
+
 /* Markdown body */
 
 .markdown-body {
   font: var(--dsw-font-markdown-base, 400 var(--dsh-content-font-size, 14px) / 1.7 var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif));
   color: var(--dsw-alias-label-primary, #1f2328);
   word-break: break-word;
+}
+
+/* Reading layout. The width always applies (it defaults to the panel's own);
+   size and leading apply only once the reader has chosen one, so the app's
+   Markdown tokens stay in charge until then. */
+.md-live-preview .markdown-body {
+  max-width: var(--md-live-width, none);
+  margin-inline: auto;
+}
+
+.md-live-preview.has-reading .markdown-body {
+  font-size: var(--md-live-font-size, var(--dsh-content-font-size, 14px));
+  line-height: var(--md-live-line-height, 1.7);
 }
 
 .markdown-body h1,
@@ -357,6 +470,37 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+/* Search box: the workspace list is long enough to need one. */
+
+.md-live-search {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  margin: 0 8px 6px;
+  padding: 5px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-family: var(--ds-font-family-code, var(--dsh-font-family-code-default, ui-monospace, monospace));
+  font-size: var(--dsh-code-font-size, 12px);
+  outline: none;
+}
+
+.md-live-search::placeholder {
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+}
+
+.md-live-search:focus {
+  border-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.md-live-picker-section {
+  padding: 10px 8px 4px;
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
 }
 
 .md-live-picker-item {

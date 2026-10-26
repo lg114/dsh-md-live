@@ -13,7 +13,12 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
 - **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
 - **The path is visible** — the header shows `directory/filename` relative to the workspace, with the absolute path in the tooltip. In a narrow panel the directory gives way first; the filename never truncates.
-- **Table of contents** — headings are extracted and their ids injected at render time, so the entries actually scroll.
+- **Images beside the document** — a relative `![](...)` path is resolved against the file's own directory and served by the Host's file endpoint, so a screenshot sitting next to the `.md` actually shows up.
+- **Links do what they look like** — a link to another `.md` opens it in this tab, `#anchor` scrolls inside the document, and an `https://` link goes to the browser instead of navigating the app away.
+- **Open it elsewhere** — hand the file to the OS default application, or reveal it in the file manager, straight from the header.
+- **Search and recents** — filter the workspace list by any fragment of the path; the documents you opened last sit at the top.
+- **Table of contents** — headings are extracted and their ids injected at render time, so the entries actually scroll. The heading you are reading is marked as you scroll, and the column folds to a rail when the panel is narrow.
+- **Reading settings** — body size, leading and measure, remembered per browser. Every default is "follow the app", so the panel still obeys the app's own Markdown tokens until you say otherwise.
 - **Safe rendering** — sanitised by DOMPurify (HTML profile): scripts, iframes, event attributes and `javascript:` URLs are stripped.
 - **Syntax highlighting** — highlight.js with 27 languages registered on demand.
 - **Follows the app's settings** — colours, font sizes and font families all read DSH's `--dsw-*` design tokens, so the light/dark appearance, the font-size stepper and any registered third-party theme carry over.
@@ -61,7 +66,7 @@ Five constraints worth knowing, each learned the hard way:
 1. **`ctx.remote.*` returns a Result envelope**, not a bare value: `{ ok: true, value } | { ok: false, error }`. Reading fields off it yields `undefined` *without throwing* — which is exactly how an empty file list looks like an empty workspace.
 2. **`list` / `readBytes` reject an empty path** with `path is required`. The scan must start from the Session's absolute cwd (the slot's standard prop `useSessions` → `byId[sessionId].cwd`).
 3. **`changes` is a Remote stream**: wrap it in `remote.$stream({ name, open, ended })` and `accept()` every frame, or the uplink window fills and live updates stop silently.
-4. **There is no Host → Client event bridge.** Client plugins can only use `ctx.remote.*` request/response and streams; `ctx.emit` on the Host never reaches the browser. That is why this plugin's Host half is empty.
+4. **There is no Host → Client event bridge.** `ctx.emit` on the Host never reaches the browser. What a Client *can* observe is `remote.session.follow` — a Remote stream carrying the session's own events, `tool/call` among them — but this plugin does not subscribe to it yet, and everything it needs is a read it can make itself, which is why the Host half is empty.
 5. **A client bundle must be `window.__ModuleLoader__.load({ id, factory })`**: executing the script only registers a factory, and the loader supplies `require` at materialization. Drop that wrapper and the bundle's `require("react")` runs at script scope, failing with `ReferenceError`.
 
 ## Development
@@ -69,25 +74,23 @@ Five constraints worth knowing, each learned the hard way:
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
-npm run verify:client  # mount the built bundle in jsdom and run 35 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 53 end-to-end checks
 npm run clean
 ```
 
-`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation and highlighting. Run it after changing client code — it is far faster than clicking through the browser.
+`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding and reading settings. Run it after changing client code — it is far faster than clicking through the browser.
 
 ## Known limitations
 
 - **Read-only**: `workspaceFiles` has no write API, so there is no editor and no saving.
 - **No auto-open**: with no Host → Client push channel, "open the panel when the Agent writes a `.md`" needs a custom Remote or a session-stream subscription. Not implemented.
-- **Relative images do not resolve**: `![](...)` paths are not rewritten to `dsh-resource://` addresses, so they render broken.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
 - **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
-- **Bundle size**: about 460 KB (marked + DOMPurify + 27 highlight.js language definitions).
+- **Bundle size**: about 485 KB (marked + DOMPurify + 27 highlight.js language definitions).
 
 ## Roadmap
 
 - [ ] Lazy-load highlight.js languages to shrink the first payload further
-- [ ] Relative-path images (rewrite to `dsh-resource://`)
 - [ ] Mermaid / KaTeX
 - [ ] Edit and save (needs a write API)
 - [ ] Auto-open when the Agent writes (needs a real Host → Client channel)
@@ -95,6 +98,7 @@ npm run clean
 ## Compatibility
 
 - DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`)
+- `remote.session.openWorkspacePath` / `canOpenWorkspacePath` for the "open elsewhere" actions; the buttons hide themselves when the Host has no desktop to open them on
 - Node.js >= 18 (build time)
 - React >= 18 (supplied by DSH's browser module table, not bundled)
 

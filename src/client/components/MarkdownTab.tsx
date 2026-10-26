@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { extractTOC, renderMarkdown, sanitizeHtml, withHeadingIds, highlightWithin, type TOCItem } from '../utils/markdown';
+import {
+  extractTOC,
+  isMarkdownPath,
+  renderMarkdown,
+  resolveDocPath,
+  resolveImageUrls,
+  sanitizeHtml,
+  withHeadingIds,
+  highlightWithin,
+  type TOCItem,
+} from '../utils/markdown';
 import { TOC } from './TOC';
 
 /** How far a scan may go. Only a safety net: the workspace is scanned whole. */
@@ -47,27 +57,50 @@ export const DEFAULT_SKIP_DIRS: readonly string[] = [
 ];
 
 const SKIP_DIRS_STORAGE_KEY = 'dsh-md-live.skip-dirs.v1';
+const RECENT_STORAGE_KEY = 'dsh-md-live.recent.v1';
+const READING_STORAGE_KEY = 'dsh-md-live.reading.v1';
+const TOC_STORAGE_KEY = 'dsh-md-live.toc-collapsed.v1';
+
+/** How many recently opened documents the picker keeps. */
+const MAX_RECENT = 8;
+
+/** Read one JSON value; a missing or broken entry yields `undefined`. */
+function readStored<T>(key: string): T | undefined {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return undefined;
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Write one JSON value; a blocked write must never break the panel. */
+function writeStored(key: string, value: unknown): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* private mode or a full quota: the session keeps the in-memory value */
+  }
+}
 
 /** Read the saved rules; a missing or broken value falls back to the defaults. */
 export function loadSkipDirs(): string[] {
-  try {
-    const raw = window.localStorage.getItem(SKIP_DIRS_STORAGE_KEY);
-    if (raw === null) return [...DEFAULT_SKIP_DIRS];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...DEFAULT_SKIP_DIRS];
-    return parsed.filter((item): item is string => typeof item === 'string');
-  } catch {
-    return [...DEFAULT_SKIP_DIRS];
-  }
+  const parsed = readStored<unknown>(SKIP_DIRS_STORAGE_KEY);
+  if (!Array.isArray(parsed)) return [...DEFAULT_SKIP_DIRS];
+  return parsed.filter((item): item is string => typeof item === 'string');
 }
 
 /** Persist the rules; a blocked storage write must not break the panel. */
 export function saveSkipDirs(rules: string[]): void {
-  try {
-    window.localStorage.setItem(SKIP_DIRS_STORAGE_KEY, JSON.stringify(rules));
-  } catch {
-    /* private mode or a full quota: the session keeps the in-memory value */
-  }
+  writeStored(SKIP_DIRS_STORAGE_KEY, rules);
+}
+
+/** The documents opened most recently, newest first. */
+function loadRecent(): string[] {
+  const parsed = readStored<unknown>(RECENT_STORAGE_KEY);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((item): item is string => typeof item === 'string').slice(0, MAX_RECENT);
 }
 
 /** One rule per line, trimmed, empty lines dropped, duplicates collapsed. */
@@ -83,6 +116,36 @@ function parseRules(text: string): string[] {
     rules.push(name);
   }
   return rules;
+}
+
+/**
+ * How the reader wants the document laid out.
+ *
+ * Every field is nullable, and `null` means "whatever the app's own Markdown
+ * tokens say" — the default is to inherit, not to impose a house style.
+ */
+export interface ReadingSettings {
+  /** Body font size in px, or `null` to follow the app's content size. */
+  fontSize: number | null;
+  /** Body line height as a multiple, or `null` to follow the app. */
+  lineHeight: number | null;
+  /** Measure in px, or `null` for the full panel width. */
+  width: number | null;
+}
+
+const DEFAULT_READING: ReadingSettings = { fontSize: null, lineHeight: null, width: null };
+
+/** Read the saved layout, ignoring anything that is not a known field. */
+function loadReading(): ReadingSettings {
+  const parsed = readStored<any>(READING_STORAGE_KEY);
+  if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_READING };
+  const number = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return {
+    fontSize: number(parsed.fontSize),
+    lineHeight: number(parsed.lineHeight),
+    width: number(parsed.width),
+  };
 }
 
 /**
@@ -105,6 +168,12 @@ export interface MdLiveApi {
   ) => Promise<MdLiveListing>;
   /** Watch one file; yields a frame per filesystem invalidation. */
   watch: (sessionId: string, path: string, signal: AbortSignal) => AsyncIterable<any>;
+  /** Hand a URL to the browser. */
+  openExternal: (url: string) => void;
+  /** Hand a workspace path to the Host: its default app, or its file manager. */
+  openPath: (path: string, action?: 'reveal') => Promise<void>;
+  /** Whether the Host can open workspace paths at all (it cannot when remote). */
+  canOpenPath: () => Promise<boolean>;
 }
 
 const basename = (p?: string): string => (p ? p.split(/[\\/]/).pop() || p : '');
@@ -162,6 +231,15 @@ function truncationNote(by: MdLiveTruncation, limits: MdLiveScanBudget): string 
   }
 }
 
+/** The reading-layout variables, or nothing when the reader kept the defaults. */
+function readingVars(reading: ReadingSettings): React.CSSProperties {
+  const style: Record<string, string> = {};
+  if (reading.fontSize !== null) style['--md-live-font-size'] = `${reading.fontSize}px`;
+  if (reading.lineHeight !== null) style['--md-live-line-height'] = String(reading.lineHeight);
+  if (reading.width !== null) style['--md-live-width'] = `${reading.width}px`;
+  return style as React.CSSProperties;
+}
+
 /**
  * The Markdown preview tab's body.
  *
@@ -199,7 +277,19 @@ export function MarkdownTabBody(props: any) {
   const [skipDirs, setSkipDirs] = useState<string[]>(() => loadSkipDirs());
   const [rulesOpen, setRulesOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const [recent, setRecent] = useState<string[]>(() => loadRecent());
+  const [reading, setReading] = useState<ReadingSettings>(() => loadReading());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tocCollapsed, setTocCollapsed] = useState<boolean>(
+    () => readStored<unknown>(TOC_STORAGE_KEY) === true,
+  );
+  /** The heading the reader is at, so the outline can follow along. */
+  const [activeId, setActiveId] = useState('');
+  /** `null` until the Host has answered whether it can open paths. */
+  const [canOpen, setCanOpen] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -304,10 +394,48 @@ export function MarkdownTabBody(props: any) {
     return () => ac.abort();
   }, [path, api, sessionId, root, skipDirs]);
 
+  // Ask once per Session whether the Host can hand a path to the OS. It cannot
+  // when the browser is attached over the network, and offering a dead button
+  // would be worse than offering none.
+  useEffect(() => {
+    let alive = true;
+    if (!api?.canOpenPath) {
+      setCanOpen(false);
+      return;
+    }
+    void api
+      .canOpenPath()
+      .then((answer) => {
+        if (alive) setCanOpen(Boolean(answer));
+      })
+      .catch(() => {
+        if (alive) setCanOpen(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [api]);
+
+  // Opening a document is what makes it recent, whether it came from the
+  // picker, a link inside another document, or another part of the app.
+  useEffect(() => {
+    if (!path) return;
+    setRecent((prev) => {
+      if (prev[0] === path) return prev;
+      const next = [path, ...prev.filter((item) => item !== path)].slice(0, MAX_RECENT);
+      writeStored(RECENT_STORAGE_KEY, next);
+      return next;
+    });
+  }, [path]);
+
   const toc = useMemo<TOCItem[]>(() => (content ? extractTOC(content) : []), [content]);
+  const base = typeof document !== 'undefined' ? document.baseURI : '';
   const html = useMemo(
-    () => (content ? sanitizeHtml(withHeadingIds(renderMarkdown(content), toc)) : ''),
-    [content, toc],
+    () =>
+      content
+        ? sanitizeHtml(resolveImageUrls(withHeadingIds(renderMarkdown(content), toc), path, base))
+        : '',
+    [content, toc, path, base],
   );
 
   // Highlighting runs on the rendered DOM, after the HTML lands.
@@ -325,12 +453,129 @@ export function MarkdownTabBody(props: any) {
     }
   }, []);
 
+  // Follow the reader: the outline marks whichever heading is at the top of the
+  // viewport, so a long document still says where you are.
+  useEffect(() => {
+    if (status !== 'ready' || toc.length === 0) return;
+    const preview = previewRef.current;
+    if (!preview) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const headings = Array.from(
+        preview.querySelectorAll('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]'),
+      ) as HTMLElement[];
+      if (headings.length === 0) return;
+      const edge = preview.getBoundingClientRect().top + 8;
+      let current = headings[0].id;
+      for (const heading of headings) {
+        if (heading.getBoundingClientRect().top <= edge) current = heading.id;
+        else break;
+      }
+      setActiveId((prev) => (prev === current ? prev : current));
+    };
+    const onScroll = () => {
+      if (frame !== 0) return;
+      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(measure);
+      else measure();
+    };
+    preview.addEventListener('scroll', onScroll, { passive: true });
+    measure();
+    return () => {
+      preview.removeEventListener('scroll', onScroll);
+      if (frame !== 0 && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+    };
+  }, [status, toc, html]);
+
+  // Reset the outline marker when the document changes under it.
+  useEffect(() => {
+    setActiveId('');
+  }, [path]);
+
   const pick = useCallback(
     (name: string) => {
       api?.open(name);
     },
     [api],
   );
+
+  const toggleToc = useCallback(() => {
+    setTocCollapsed((prev) => {
+      const next = !prev;
+      writeStored(TOC_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const updateReading = useCallback((patch: Partial<ReadingSettings>) => {
+    setReading((prev) => {
+      const next = { ...prev, ...patch };
+      writeStored(READING_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  // A click inside the document is a navigation the tab owns: the browser would
+  // otherwise resolve a relative link against the app's own URL and leave the
+  // page, or open a bare `#anchor` in a new tab.
+  const onPreviewClick = useCallback(
+    (event: any) => {
+      const anchor = (event.target as HTMLElement | null)?.closest?.('a');
+      if (!anchor) return;
+      const href = anchor.getAttribute('href') ?? '';
+      if (!href) return;
+      if (href.startsWith('#')) {
+        event.preventDefault();
+        try {
+          scrollToHeading(decodeURIComponent(href.slice(1)));
+        } catch {
+          scrollToHeading(href.slice(1));
+        }
+        return;
+      }
+      if (/^(https?:|mailto:)/i.test(href)) {
+        event.preventDefault();
+        api?.openExternal?.(href);
+        return;
+      }
+      // A scheme we do not own (and not a Windows drive): leave it alone.
+      if (/^[a-z][a-z\d+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) return;
+      event.preventDefault();
+      const target = resolveDocPath(path, href);
+      if (!target) return;
+      if (isMarkdownPath(target)) pick(target);
+      else void api?.openPath?.(target);
+    },
+    [api, path, pick, scrollToHeading],
+  );
+
+  // The settings popover closes on a click outside it, like any other menu.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onDown = (event: any) => {
+      const node = actionsRef.current;
+      if (node && event.target && node.contains(event.target)) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [settingsOpen]);
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return list.files;
+    return list.files.filter((abs) =>
+      relativeTo(list.root || root, abs).toLowerCase().includes(needle),
+    );
+  }, [query, list.files, list.root, root]);
+
+  // Recent entries point at files that may have been deleted since; while the
+  // scan is still running there is nothing to check them against, so they show.
+  const recentVisible = useMemo(() => {
+    if (list.status !== 'ready') return recent;
+    const known = new Set(list.files);
+    return recent.filter((item) => known.has(item));
+  }, [recent, list.status, list.files]);
 
   const scannedRoot = list.root ? list.root : '工作区根目录';
   const where = list.root ? `「${list.root}」` : '工作区';
@@ -339,6 +584,22 @@ export function MarkdownTabBody(props: any) {
   // absolute path stays in the tooltip.
   const shownPath = path ? relativeTo(list.root || root, path) : '';
   const shownDir = dirname(shownPath);
+  const hasReading = reading.fontSize !== null || reading.lineHeight !== null;
+
+  const renderRow = (abs: string, shown: string, keyPrefix: string) => {
+    const dir = dirname(shown);
+    return (
+      <button
+        key={keyPrefix + abs}
+        className="md-live-picker-item"
+        onClick={() => pick(abs)}
+        title={shown}
+      >
+        {dir ? <span className="md-live-picker-dir">{dir}/</span> : null}
+        <span className="md-live-picker-name">{basename(shown)}</span>
+      </button>
+    );
+  };
 
   return (
     <div className="md-live-panel">
@@ -372,15 +633,126 @@ export function MarkdownTabBody(props: any) {
             'md-live'
           )}
         </div>
-        {path && live === 'unavailable' ? (
-          <div className="md-live-actions">
+        {path ? (
+          <div className="md-live-actions" ref={actionsRef}>
+            {canOpen ? (
+              <>
+                <button
+                  className="md-live-btn md-live-icon-btn"
+                  onClick={() => void api?.openPath(path)}
+                  title="用系统默认应用打开"
+                  aria-label="用系统默认应用打开"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path
+                      d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M12 9.5v3A1.5 1.5 0 0 1 10.5 14h-7A1.5 1.5 0 0 1 2 12.5v-7A1.5 1.5 0 0 1 3.5 4h3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                <button
+                  className="md-live-btn md-live-icon-btn"
+                  onClick={() => void api?.openPath(path, 'reveal')}
+                  title="在文件管理器中显示"
+                  aria-label="在文件管理器中显示"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path
+                      d="M2 5.5A1.5 1.5 0 0 1 3.5 4h2.6l1.4 1.8h5A1.5 1.5 0 0 1 14 7.3v5.2A1.5 1.5 0 0 1 12.5 14h-9A1.5 1.5 0 0 1 2 12.5z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </>
+            ) : null}
             <button
-              className="md-live-btn"
-              onClick={() => void load()}
-              title="这个文件无法自动监听变化，点此重新读取"
+              className="md-live-btn md-live-icon-btn"
+              onClick={() => setSettingsOpen((open) => !open)}
+              title="阅读设置"
+              aria-label="阅读设置"
+              aria-expanded={settingsOpen}
             >
-              刷新
+              Aa
             </button>
+            {live === 'unavailable' ? (
+              <button
+                className="md-live-btn"
+                onClick={() => void load()}
+                title="这个文件无法自动监听变化，点此重新读取"
+              >
+                刷新
+              </button>
+            ) : null}
+            {settingsOpen ? (
+              <div className="md-live-settings" role="dialog" aria-label="阅读设置">
+                <label className="md-live-settings-row">
+                  <span>字号</span>
+                  <select
+                    value={reading.fontSize === null ? '' : String(reading.fontSize)}
+                    onChange={(e) =>
+                      updateReading({ fontSize: e.target.value ? Number(e.target.value) : null })
+                    }
+                  >
+                    <option value="">跟随设置</option>
+                    <option value="13">13px</option>
+                    <option value="14">14px</option>
+                    <option value="15">15px</option>
+                    <option value="16">16px</option>
+                    <option value="18">18px</option>
+                  </select>
+                </label>
+                <label className="md-live-settings-row">
+                  <span>行距</span>
+                  <select
+                    value={reading.lineHeight === null ? '' : String(reading.lineHeight)}
+                    onChange={(e) =>
+                      updateReading({ lineHeight: e.target.value ? Number(e.target.value) : null })
+                    }
+                  >
+                    <option value="">跟随设置</option>
+                    <option value="1.5">1.5</option>
+                    <option value="1.6">1.6</option>
+                    <option value="1.7">1.7</option>
+                    <option value="1.8">1.8</option>
+                    <option value="2">2.0</option>
+                  </select>
+                </label>
+                <label className="md-live-settings-row">
+                  <span>行宽</span>
+                  <select
+                    value={reading.width === null ? '' : String(reading.width)}
+                    onChange={(e) =>
+                      updateReading({ width: e.target.value ? Number(e.target.value) : null })
+                    }
+                  >
+                    <option value="">跟随设置</option>
+                    <option value="640">640px</option>
+                    <option value="760">760px</option>
+                    <option value="900">900px</option>
+                  </select>
+                </label>
+                <div className="md-live-settings-actions">
+                  <button className="md-live-btn" onClick={() => updateReading(DEFAULT_READING)}>
+                    恢复默认
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -395,32 +767,41 @@ export function MarkdownTabBody(props: any) {
                 <div className="md-live-picker-head">
                   <span>{scannedRoot}</span>
                   <span className="md-live-picker-count">
-                    {scanning ? '扫描中…' : `${list.files.length} 个文件`}
+                    {scanning
+                      ? '扫描中…'
+                      : query.trim()
+                        ? `${visible.length} / ${list.files.length} 个文件`
+                        : `${list.files.length} 个文件`}
                   </span>
                 </div>
+                <input
+                  className="md-live-search"
+                  value={query}
+                  spellCheck={false}
+                  placeholder="搜索文件名或路径"
+                  aria-label="搜索 Markdown 文件"
+                  onChange={(e) => setQuery(e.target.value)}
+                />
                 {list.files.length === 0 ? (
                   <div className="md-live-status">
                     {scanning ? `正在扫描${where}…` : `${where}里没有 Markdown 文件`}
                   </div>
+                ) : visible.length === 0 ? (
+                  <div className="md-live-status">没有匹配「{query.trim()}」的文件</div>
                 ) : (
                   <div className="md-live-picker-list">
-                    {list.files.map((abs) => {
-                      // Files are absolute for the Remote; the list shows the part
-                      // below the workspace root, which is what a user recognizes.
-                      const shown = relativeTo(list.root || root, abs);
-                      const dir = dirname(shown);
-                      return (
-                        <button
-                          key={abs}
-                          className="md-live-picker-item"
-                          onClick={() => pick(abs)}
-                          title={shown}
-                        >
-                          {dir ? <span className="md-live-picker-dir">{dir}/</span> : null}
-                          <span className="md-live-picker-name">{basename(shown)}</span>
-                        </button>
-                      );
-                    })}
+                    {!query.trim() && recentVisible.length > 0 ? (
+                      <>
+                        <div className="md-live-picker-section">最近打开</div>
+                        {recentVisible.map((abs) =>
+                          renderRow(abs, relativeTo(list.root || root, abs), 'recent:'),
+                        )}
+                        <div className="md-live-picker-section">全部文件</div>
+                      </>
+                    ) : null}
+                    {visible.map((abs) =>
+                      renderRow(abs, relativeTo(list.root || root, abs), 'all:'),
+                    )}
                   </div>
                 )}
                 {!scanning && (list.truncatedBy || skipDirs.length > 0) ? (
@@ -498,12 +879,26 @@ export function MarkdownTabBody(props: any) {
         ) : (
           <div className="md-live-split">
             {toc.length > 0 && (
-              <div className="md-live-toc">
-                <TOC items={toc} onHeadingClick={scrollToHeading} />
+              <div className={`md-live-toc${tocCollapsed ? ' is-collapsed' : ''}`}>
+                <TOC
+                  items={toc}
+                  activeId={activeId}
+                  collapsed={tocCollapsed}
+                  onToggle={toggleToc}
+                  onHeadingClick={scrollToHeading}
+                />
               </div>
             )}
-            <div className="md-live-preview" ref={previewRef}>
-              <div className="markdown-body" dangerouslySetInnerHTML={{ __html: html }} />
+            <div
+              className={`md-live-preview${hasReading ? ' has-reading' : ''}`}
+              ref={previewRef}
+              style={readingVars(reading)}
+            >
+              <div
+                className="markdown-body"
+                onClick={onPreviewClick}
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
             </div>
           </div>
         )}
