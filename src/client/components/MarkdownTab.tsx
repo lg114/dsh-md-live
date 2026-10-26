@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  decorateCodeBlocks,
   extractTOC,
   isMarkdownPath,
   renderMarkdown,
   resolveDocPath,
   resolveImageUrls,
   sanitizeHtml,
+  splitFrontmatter,
   withHeadingIds,
   highlightWithin,
   type TOCItem,
@@ -428,20 +430,25 @@ export function MarkdownTabBody(props: any) {
     });
   }, [path]);
 
-  const toc = useMemo<TOCItem[]>(() => (content ? extractTOC(content) : []), [content]);
+  // Front matter is metadata, not prose: rendered as Markdown it would open the
+  // document with a stray rule and a `title: …` paragraph.
+  const doc = useMemo(() => splitFrontmatter(content), [content]);
+  const toc = useMemo<TOCItem[]>(() => (doc.body ? extractTOC(doc.body) : []), [doc.body]);
   const base = typeof document !== 'undefined' ? document.baseURI : '';
   const html = useMemo(
     () =>
-      content
-        ? sanitizeHtml(resolveImageUrls(withHeadingIds(renderMarkdown(content), toc), path, base))
+      doc.body
+        ? sanitizeHtml(resolveImageUrls(withHeadingIds(renderMarkdown(doc.body), toc), path, base))
         : '',
-    [content, toc, path, base],
+    [doc.body, toc, path, base],
   );
 
-  // Highlighting runs on the rendered DOM, after the HTML lands.
+  // Highlighting and the code toolbar both run on the rendered DOM, after the
+  // HTML lands, and are rebuilt from scratch on every re-render.
   useEffect(() => {
     if (status !== 'ready') return;
     highlightWithin(previewRef.current);
+    decorateCodeBlocks(previewRef.current);
   }, [html, status]);
 
   const scrollToHeading = useCallback((id: string) => {
@@ -894,6 +901,14 @@ export function MarkdownTabBody(props: any) {
               ref={previewRef}
               style={readingVars(reading)}
             >
+              {doc.meta ? (
+                <details className="md-live-frontmatter">
+                  <summary>
+                    frontmatter · {doc.meta.split('\n').length} 行
+                  </summary>
+                  <pre>{doc.meta}</pre>
+                </details>
+              ) : null}
               <div
                 className="markdown-body"
                 onClick={onPreviewClick}

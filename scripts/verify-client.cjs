@@ -19,6 +19,17 @@ global.Node = dom.window.Node;
 global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.cancelAnimationFrame = (id) => clearTimeout(id);
 
+// The bundle copies code through the async clipboard; jsdom has no such API.
+const copied = [];
+Object.defineProperty(dom.window.navigator, 'clipboard', {
+  configurable: true,
+  value: {
+    writeText: async (text) => {
+      copied.push(text);
+    },
+  },
+});
+
 const React = require('react');
 const { createRoot } = require('react-dom/client');
 
@@ -28,6 +39,7 @@ const sandbox = {
   console: { log() {}, error: (...a) => console.error('[bundle]', ...a), warn() {} },
   document: dom.window.document,
   localStorage: dom.window.localStorage,
+  navigator: dom.window.navigator,
   TextDecoder,
   TextEncoder,
   AbortController,
@@ -498,6 +510,49 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     shellEl.innerHTML.includes('dsh-app://app/api/file?path='));
   r12.unmount();
   baseTag.remove();
+
+  // Front matter stays out of the prose, and code blocks carry their own chrome.
+  fileText = [
+    '---',
+    'title: 示例文档',
+    'tags: [a, b]',
+    '---',
+    '',
+    '# 正文标题',
+    '',
+    '正文内容。',
+    '',
+    '```ts',
+    'const answer = 42;',
+    '```',
+  ].join('\n');
+  const metaEl = document.createElement('div');
+  document.body.appendChild(metaEl);
+  const r13 = createRoot(metaEl);
+  r13.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't13', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(180);
+  const bodyText = (metaEl.querySelector('.markdown-body') || {}).textContent || '';
+  console.log('47) front matter is shown apart from the prose:',
+    Boolean(metaEl.querySelector('.md-live-frontmatter')) &&
+    bodyText.includes('正文标题') &&
+    !bodyText.includes('title: 示例文档'));
+  const codeBar = metaEl.querySelector('.md-live-code-bar');
+  console.log('48) code blocks carry a language label and a copy control:',
+    Boolean(codeBar) &&
+    codeBar.querySelector('.md-live-code-lang')?.textContent === 'ts' &&
+    Boolean(codeBar.querySelector('.md-live-code-copy')));
+  if (codeBar) {
+    codeBar.querySelector('.md-live-code-copy').click();
+    await wait(60);
+  }
+  console.log('49) copy puts the code on the clipboard:',
+    copied[copied.length - 1] === 'const answer = 42;' &&
+    metaEl.querySelector('.md-live-code-copy').textContent === '已复制',
+    JSON.stringify(copied), metaEl.querySelector('.md-live-code-copy')?.textContent);
+  r13.unmount();
 
   r2.unmount();
   r3.unmount();

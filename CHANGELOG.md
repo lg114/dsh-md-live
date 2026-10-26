@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-26
+
+This release was planned as "swap in the official `MarkdownText` renderer".
+Reading its implementation killed that plan: it renders from an mdast tree that
+emits raw HTML verbatim with no sanitiser, gives headings no `id`, and does no
+syntax highlighting — the three things this tab cannot give up on arbitrary
+files from a workspace. The parts worth taking from it were rebuilt on the
+existing renderer instead.
+
+### Added
+
+- A code-block toolbar: the language the fence declared, and a copy control,
+  revealed on hover. The copy strips the trailing newline `marked` leaves before
+  `</code>`, so a pasted shell command does not run itself.
+- Front matter is separated from the prose and shown in a collapsed box, so a
+  document opens with its content instead of a stray horizontal rule and a
+  `title: …` paragraph.
+
+### Changed
+
+- `verify:client` grew from 53 to 56 checks.
+
 ## [0.4.0] - 2026-10-26
 
 The document became something you read rather than something you look at:
@@ -99,6 +121,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.5.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.5.0
 [0.4.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.4.0
 [0.3.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.3.0
 [0.1.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.1.0

@@ -21,6 +21,8 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Reading settings** — body size, leading and measure, remembered per browser. Every default is "follow the app", so the panel still obeys the app's own Markdown tokens until you say otherwise.
 - **Safe rendering** — sanitised by DOMPurify (HTML profile): scripts, iframes, event attributes and `javascript:` URLs are stripped.
 - **Syntax highlighting** — highlight.js with 27 languages registered on demand.
+- **Code blocks you can act on** — every block shows its language and a copy control on hover. The copy drops the trailing newline, so a pasted command does not run itself.
+- **Front matter stays metadata** — a leading `---` block is lifted out of the prose and shown in a collapsed box, instead of turning into a stray horizontal rule and a `title: …` paragraph.
 - **Follows the app's settings** — colours, font sizes and font families all read DSH's `--dsw-*` design tokens, so the light/dark appearance, the font-size stepper and any registered third-party theme carry over.
 
 ## Install
@@ -61,24 +63,25 @@ Host (lib/index.js)
 └── an empty apply(): it registers the package, nothing else
 ```
 
-Five constraints worth knowing, each learned the hard way:
+Six constraints worth knowing, each learned the hard way:
 
 1. **`ctx.remote.*` returns a Result envelope**, not a bare value: `{ ok: true, value } | { ok: false, error }`. Reading fields off it yields `undefined` *without throwing* — which is exactly how an empty file list looks like an empty workspace.
 2. **`list` / `readBytes` reject an empty path** with `path is required`. The scan must start from the Session's absolute cwd (the slot's standard prop `useSessions` → `byId[sessionId].cwd`).
 3. **`changes` is a Remote stream**: wrap it in `remote.$stream({ name, open, ended })` and `accept()` every frame, or the uplink window fills and live updates stop silently.
 4. **There is no Host → Client event bridge.** `ctx.emit` on the Host never reaches the browser. What a Client *can* observe is `remote.session.follow` — a Remote stream carrying the session's own events, `tool/call` among them — but this plugin does not subscribe to it yet, and everything it needs is a read it can make itself, which is why the Host half is empty.
 5. **A client bundle must be `window.__ModuleLoader__.load({ id, factory })`**: executing the script only registers a factory, and the loader supplies `require` at materialization. Drop that wrapper and the bundle's `require("react")` runs at script scope, failing with `ReferenceError`.
+6. **The official `MarkdownText` primitive is deliberately not reused.** It is in the browser module table and would save about 480 KB of bundle, but it renders from an mdast tree that emits raw HTML verbatim with no sanitiser, gives headings no `id`, and does no syntax highlighting — the three things this tab has to get right on arbitrary files from a workspace. Its KaTeX support and code-block toolbar are real; the toolbar was rebuilt here on top of the existing renderer instead, and KaTeX is still missing.
 
 ## Development
 
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
-npm run verify:client  # mount the built bundle in jsdom and run 53 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 56 end-to-end checks
 npm run clean
 ```
 
-`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding and reading settings. Run it after changing client code — it is far faster than clicking through the browser.
+`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar and front matter. Run it after changing client code — it is far faster than clicking through the browser.
 
 ## Known limitations
 
@@ -86,7 +89,7 @@ npm run clean
 - **No auto-open**: with no Host → Client push channel, "open the panel when the Agent writes a `.md`" needs a custom Remote or a session-stream subscription. Not implemented.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
 - **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
-- **Bundle size**: about 485 KB (marked + DOMPurify + 27 highlight.js language definitions).
+- **Bundle size**: about 490 KB (marked + DOMPurify + 27 highlight.js language definitions).
 
 ## Roadmap
 

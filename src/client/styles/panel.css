@@ -314,6 +314,88 @@
   line-height: var(--md-live-line-height, 1.7);
 }
 
+/* Front matter: metadata belongs above the prose, not inside it. */
+
+.md-live-frontmatter {
+  max-width: var(--md-live-width, none);
+  margin: 0 auto 16px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}
+
+.md-live-frontmatter > summary {
+  padding: 6px 10px;
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  cursor: pointer;
+  user-select: none;
+}
+
+.md-live-frontmatter > pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font: var(--dsw-font-markdown-code-block, 400 var(--dsh-code-font-size, 12px) / 1.6 var(--ds-font-family-code, ui-monospace, monospace));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Code blocks: a language label and a copy control, revealed on hover. */
+
+.md-live-preview pre {
+  position: relative;
+}
+
+.md-live-code-bar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.md-live-preview pre:hover .md-live-code-bar,
+.md-live-preview pre:focus-within .md-live-code-bar {
+  opacity: 1;
+}
+
+.md-live-code-lang {
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  font-family: var(--ds-font-family-code, var(--dsh-font-family-code-default, ui-monospace, monospace));
+  font-size: 11px;
+  line-height: 1;
+}
+
+.md-live-code-copy {
+  padding: 2px 6px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  color: var(--dsw-alias-label-secondary, #656d76);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.md-live-code-copy:hover {
+  color: var(--dsw-alias-label-primary, #1f2328);
+}
+
+.md-live-code-copy[data-state="done"] {
+  color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
+.md-live-code-copy[data-state="failed"] {
+  color: var(--dsw-alias-state-error-primary, #d92d20);
+}
+
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,

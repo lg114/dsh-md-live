@@ -21,6 +21,8 @@ DSH Web 右侧栏的原生 Markdown 预览标签页。
 - **阅读设置** —— 正文字号、行距、行宽，按浏览器记住。所有默认值都是「跟随设置」，也就是说在你明确改之前，排版仍然由 DSH 自己的 Markdown token 决定。
 - **安全渲染** —— DOMPurify（HTML profile）净化，脚本、iframe、事件属性、`javascript:` 链接都会被剥掉。
 - **代码高亮** —— highlight.js，按需注册 27 种常用语言。
+- **代码块可操作** —— 每块代码悬停时显示语言名和复制按钮；复制会去掉结尾换行，粘进终端不会自己执行。
+- **frontmatter 不混进正文** —— 开头的 `---` 块被单独拎出来折叠显示，而不是变成一条多余的分隔线加一段 `title: …` 正文。
 - **跟随设置** —— 颜色、字号、字体全部读 DSH 的 `--dsw-*` 设计 token，明暗主题、字号步进器、第三方主题都会跟着变。
 
 ## 安装
@@ -61,24 +63,25 @@ Host（lib/index.js）
 └── 空的 apply()：注册这个包本身，没有运行时逻辑
 ```
 
-几个必须知道的约束，都是踩过的坑：
+六个必须知道的约束，都是踩过的坑：
 
 1. **`ctx.remote.*` 返回的是 Result 信封**，不是裸数据：`{ ok: true, value } | { ok: false, error }`。直接取字段会得到 `undefined` 而且不报错——空文件列表看起来就像"工作区里没有文件"。
 2. **`list`/`readBytes` 的 path 不能为空**，Host 会抛 `path is required`。起点必须是会话的绝对 cwd（slot 的标准 prop `useSessions` → `byId[sessionId].cwd`）。
 3. **`changes` 是 Remote 流**，要用 `remote.$stream({ name, open, ended })` 包一层并逐帧 `accept()`，否则上行窗口满了就静默停更。
 4. **没有 host → client 的事件桥**。Host 侧 `ctx.emit` 的事件不会到达浏览器。客户端**能**观察的是 `remote.session.follow` —— 一条携带会话自身事件（包括 `tool/call`）的 Remote 流 —— 但这个插件目前还没订阅它；它需要的一切都是客户端自己就能发起的读，所以 Host 半身是空的。
 5. **client bundle 必须是 `window.__ModuleLoader__.load({ id, factory })` 格式**：脚本执行时只注册工厂，`require` 由 loader 在物化时传入。丢掉这层包装，产物里的 `require("react")` 会在浏览器全局作用域执行，直接 `ReferenceError`。
+6. **故意没有复用官方的 `MarkdownText`**。它在浏览器模块表里，用它能省约 480 KB 产物，但它从 mdast 树渲染：原始 HTML 原样注入、不做净化，标题不带 `id`，也不做语法高亮 —— 而这三件正是这个面板在「任意工作区文件」上必须做对的。它的 KaTeX 支持和代码工具栏是真实的，工具栏这里在现有渲染器上重做了，KaTeX 仍然没有。
 
 ## 开发
 
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # 只构建 client
-npm run verify:client  # 用 jsdom 挂载真实产物跑 53 项端到端检查
+npm run verify:client  # 用 jsdom 挂载真实产物跑 56 项端到端检查
 npm run clean
 ```
 
-`verify:client` 会模拟 DSH 的模块加载器（注册 → 物化 → apply），再在 jsdom 里挂载 tab body，覆盖：注册与 slot key、Remote 信封解包、目录递归、过滤规则与持久化、渐进渲染、热更新、卸载清理、TOC 锚点、净化、代码高亮、图片与链接解析、外部打开调用、搜索、最近打开、目录折叠、阅读设置。改完 client 代码先跑它，比在浏览器里点快得多。
+`verify:client` 会模拟 DSH 的模块加载器（注册 → 物化 → apply），再在 jsdom 里挂载 tab body，覆盖：注册与 slot key、Remote 信封解包、目录递归、过滤规则与持久化、渐进渲染、热更新、卸载清理、TOC 锚点、净化、代码高亮、图片与链接解析、外部打开调用、搜索、最近打开、目录折叠、阅读设置、代码工具栏与 frontmatter。改完 client 代码先跑它，比在浏览器里点快得多。
 
 ## 已知限制
 
@@ -86,7 +89,7 @@ npm run clean
 - **不会自动打开**：没有 host → client 推送通道，"Agent 写完自动弹面板"需要自定义 Remote 或订阅会话流，目前未实现。
 - **过滤规则只匹配目录名**：任意层级、忽略大小写，不支持 `docs/archive` 这类路径通配。
 - **没有 Mermaid / KaTeX**：`$$...$$` 和 ```mermaid 会当普通文本渲染。
-- **体积**：client bundle 约 485 KB（marked + DOMPurify + 27 种语言的高亮定义）。
+- **体积**：client bundle 约 490 KB（marked + DOMPurify + 27 种语言的高亮定义）。
 
 ## 路线图
 

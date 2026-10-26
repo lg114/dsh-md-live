@@ -108,6 +108,137 @@ export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(path);
 }
 
+/** A document split into its leading metadata block and the prose below it. */
+export interface SplitDocument {
+  /** The YAML between the delimiters, or `null` when there is none. */
+  meta: string | null;
+  /** Everything after the closing delimiter — what the reader came for. */
+  body: string;
+}
+
+/**
+ * Separate a leading YAML front-matter block from the document.
+ *
+ * Rendered as Markdown, `---` is a horizontal rule and `title: x` is a
+ * paragraph, so a document with metadata opens with a stray line and a rule.
+ * The block is metadata, not prose: it is pulled out and shown on its own.
+ *
+ * @param content - the whole file.
+ * @returns the metadata block and the body; both are the input when there is
+ *   no closing delimiter, because then the `---` really was a rule.
+ */
+export function splitFrontmatter(content: string): SplitDocument {
+  const text = content.replace(/^\uFEFF/, '');
+  const open = /^---[ \t]*\r?\n/.exec(text);
+  if (!open) return { meta: null, body: content };
+  const lines = text.slice(open[0].length).split(/\r?\n/);
+  // A real front-matter block is short. Past this, the opening `---` was a rule.
+  for (let index = 0; index < lines.length && index < 200; index += 1) {
+    if (/^(---|\.\.\.)[ \t]*$/.test(lines[index])) {
+      return {
+        meta: lines.slice(0, index).join('\n').trim(),
+        body: lines.slice(index + 1).join('\n'),
+      };
+    }
+  }
+  return { meta: null, body: content };
+}
+
+/**
+ * Copy one string, preferring the async clipboard and falling back to a
+ * throwaway selection for browsers that refuse it.
+ *
+ * @param text - what to put on the clipboard.
+ * @returns whether the copy is known to have succeeded.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* permission denied or an insecure context: try the old way */
+  }
+  if (typeof document === 'undefined') return false;
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const copied = typeof document.execCommand === 'function' && document.execCommand('copy');
+    document.body.removeChild(area);
+    return Boolean(copied);
+  } catch {
+    return false;
+  }
+}
+
+/** The language a code block declared, from its `language-x` class. */
+function codeLanguage(code: HTMLElement): string {
+  const match = /(?:^|\s)language-([\w+#-]+)/i.exec(code.className);
+  return match ? match[1] : '';
+}
+
+/**
+ * Give every code block a language label and a copy control.
+ *
+ * The bar is injected into the live DOM rather than into the Markdown, so it
+ * never ends up in the text a reader copies, and a re-render simply rebuilds
+ * it — the same contract `highlightWithin` works under.
+ *
+ * @param root - the container holding the rendered Markdown.
+ */
+export function decorateCodeBlocks(root: HTMLElement | null): void {
+  if (!root) return;
+  for (const block of Array.from(root.querySelectorAll('pre'))) {
+    const pre = block as HTMLElement;
+    if (pre.dataset.mdLiveBar === '1') continue;
+    const code = pre.querySelector('code');
+    if (!code) continue;
+    pre.dataset.mdLiveBar = '1';
+
+    const bar = document.createElement('div');
+    bar.className = 'md-live-code-bar';
+
+    const language = codeLanguage(code as HTMLElement);
+    if (language) {
+      const label = document.createElement('span');
+      label.className = 'md-live-code-lang';
+      label.textContent = language;
+      bar.appendChild(label);
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'md-live-code-copy';
+    button.textContent = '复制';
+    button.title = '复制这段代码';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      // Marked leaves a newline before `</code>`; carrying it into a paste is
+      // how a copied command ends up running itself in a terminal.
+      const text = (code.textContent ?? '').replace(/\n+$/, '');
+      void copyText(text).then((ok) => {
+        button.textContent = ok ? '已复制' : '复制失败';
+        button.dataset.state = ok ? 'done' : 'failed';
+        setTimeout(() => {
+          button.textContent = '复制';
+          delete button.dataset.state;
+        }, 1200);
+      });
+    });
+    bar.appendChild(button);
+
+    pre.appendChild(bar);
+  }
+}
+
 /**
  * Collapse `.` and `..` without touching the filesystem.
  *
