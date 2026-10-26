@@ -1,5 +1,6 @@
 import React from 'react';
 import { TOCItem } from '../utils/markdown';
+import { fallbackT, type Translate } from '../locales';
 
 interface TOCProps {
   items: TOCItem[];
@@ -9,6 +10,8 @@ interface TOCProps {
   collapsed?: boolean;
   onToggle?: () => void;
   onHeadingClick: (id: string) => void;
+  /** The locale seat; Chinese when the caller has no locale service. */
+  t?: Translate;
 }
 
 /**
@@ -23,12 +26,13 @@ export const TOC: React.FC<TOCProps> = ({
   collapsed = false,
   onToggle,
   onHeadingClick,
+  t = fallbackT,
 }) => {
-  const label = collapsed ? '展开目录' : '收起目录';
+  const label = collapsed ? t('toc.collapse') : t('toc.expand');
   return (
     <div className={`md-live-toc-container${collapsed ? ' is-collapsed' : ''}`}>
       <div className="md-live-toc-title">
-        {collapsed ? null : <span>目录</span>}
+        {collapsed ? null : <span>{t('toc.label')}</span>}
         <button
           type="button"
           className="md-live-toc-toggle"

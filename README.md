@@ -28,6 +28,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Code blocks you can act on** — every block shows its language and a copy control on hover. The copy drops the trailing newline, so a pasted command does not run itself.
 - **Front matter stays metadata** — a leading `---` block is lifted out of the prose and shown in a collapsed box, instead of turning into a stray horizontal rule and a `title: …` paragraph.
 - **Follows the app's settings** — colours, font sizes and font families all read DSH's `--dsw-*` design tokens, so the light/dark appearance, the font-size stepper and any registered third-party theme carry over.
+- **Speaks the app's language** — the panel's copy is one `md-live` locale namespace with `zh` and `en` dictionaries, so it follows the language picked in Settings → General and switches live: the slot renderer re-renders the body and the chip with a new `t` seat, no reload. Refusals travel as codes from the Host, so even a sandbox denial is phrased in the reader's language instead of arriving in the Host's Chinese.
 
 ## Install
 
@@ -97,7 +98,7 @@ Every fallback errs toward refusing: an unresolved lookup is retried as a plain 
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
 npm run verify         # both halves
-npm run verify:client  # mount the built bundle in jsdom and run 81 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 85 end-to-end checks
 npm run verify:host    # run the built Host half against a fake context: 28 checks
 npm run clean
 ```
@@ -115,6 +116,7 @@ npm run clean
 - **`preview_md` does not verify the path**: the tool carries the request, and the panel resolves and reads it, so a wrong path surfaces in the panel rather than in the tool result. Resolving in both places would be two answers to one question, and the panel's is the one that gets used.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
 - **No Mermaid**: ```mermaid stays a highlighted code block with a copy control, not a diagram — see Roadmap for the measured cost.
+- **A refusal code this build has not learned yet is shown verbatim**, in the Host's Chinese: the panel translates the codes it knows and falls back to the Host's own sentence otherwise.
 - **Math is MathML, not KaTeX's HTML**: the browser's own renderer draws it, so no fonts or stylesheet are needed, but a few constructs look plainer than KaTeX's typesetting would.
 - **Bundle size**: about 861 KB (marked + DOMPurify + KaTeX + 27 highlight.js language definitions). KaTeX alone is roughly 380 KB of that.
 
@@ -139,7 +141,7 @@ for them, and only the few documents that use them benefit.
 
 ## Compatibility
 
-- DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`; `typert` for the write Remote)
+- DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`; `typert` for the write Remote; `locale` for the copy)
 - The write path reads `sessions` and `sandboxPolicy` when the composition has them; without `sandboxPolicy` (plain `fs-local`) it passes no policy and keeps the backend's own behaviour
 - `remote.session.openWorkspacePath` / `canOpenWorkspacePath` for the "open elsewhere" actions; the buttons hide themselves when the Host has no desktop to open them on
 - `@deepseek-ai/dsh-tools` (pinned to the Host's own `0.2.1-rc.2`) for `preview_md`; the tool is skipped with a warning when the package cannot be loaded

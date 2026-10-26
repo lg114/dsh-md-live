@@ -110,7 +110,22 @@ const $remote = createTypertRemoteInfo(
             z.discriminatedUnion('status', [
               z.object({ status: z.literal('saved'), version: z.string(), bytes: z.number() }),
               z.object({ status: z.literal('stale'), currentVersion: z.string() }),
-              z.object({ status: z.literal('denied'), reason: z.string() }),
+              z.object({
+                status: z.literal('denied'),
+                // The panel phrases the refusal itself; `reason` is the Host's
+                // own sentence, kept for logs and for a client without the code.
+                code: z.string().optional(),
+                reason: z.string(),
+                detail: z
+                  .object({
+                    path: z.string().optional(),
+                    mode: z.string().optional(),
+                    root: z.string().optional(),
+                    bytes: z.number().optional(),
+                    maxBytes: z.number().optional(),
+                  })
+                  .optional(),
+              }),
               z.object({ status: z.literal('missing') }),
               z.object({ status: z.literal('bad-request'), reason: z.string() }),
               z.object({ status: z.literal('error'), message: z.string() }),
@@ -121,7 +136,25 @@ const $remote = createTypertRemoteInfo(
             oneOf: [
               { properties: { status: { const: 'saved' }, version: { type: 'string' }, bytes: { type: 'number' } }, required: ['status', 'version', 'bytes'] },
               { properties: { status: { const: 'stale' }, currentVersion: { type: 'string' } }, required: ['status', 'currentVersion'] },
-              { properties: { status: { const: 'denied' }, reason: { type: 'string' } }, required: ['status', 'reason'] },
+              {
+                properties: {
+                  status: { const: 'denied' },
+                  code: { type: 'string' },
+                  reason: { type: 'string' },
+                  detail: {
+                    type: 'object',
+                    properties: {
+                      path: { type: 'string' },
+                      mode: { type: 'string' },
+                      root: { type: 'string' },
+                      bytes: { type: 'number' },
+                      maxBytes: { type: 'number' },
+                    },
+                    additionalProperties: false,
+                  },
+                },
+                required: ['status', 'reason'],
+              },
               { properties: { status: { const: 'missing' } }, required: ['status'] },
               { properties: { status: { const: 'bad-request' }, reason: { type: 'string' } }, required: ['status', 'reason'] },
               { properties: { status: { const: 'error' }, message: { type: 'string' } }, required: ['status', 'message'] },

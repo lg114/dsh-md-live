@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Writing from the panel, fenced by the right policy.
+Writing from the panel, fenced by the right policy, in the reader's language.
+
+### Added
+
+- The panel follows DSH's locale. Its copy is one `md-live` namespace with `zh`
+  and `en` dictionaries, registered through `ctx.locale`; the body and the tab
+  chip declare `locale: NS`, so the slot renderer re-renders them with a freshly
+  bound `t` when the reader switches language in Settings — no reload. The
+  guide entry, the scan errors and the Remote helpers read the same translator.
+- Refusals travel as values: a denied write now carries a `code` and the values
+  behind it (`mode`, `root`, `path`, byte limits), and the panel phrases the
+  refusal in the current language. `reason` stays in the union as the Host's own
+  sentence, used for logs and as the fallback for a code this build does not
+  know.
 
 ### Fixed
 
@@ -40,8 +53,9 @@ Writing from the panel, fenced by the right policy.
   workspace listing used.
 - `verify:host` gained the policy-forwarding check and the denial-message
   check; the client suite now asserts the Session id rides along with a save,
-  and grew to 81 checks with the navigation guard (`back arrow`, declined
-  prompt, confirmed prompt, unmount).
+  and grew to 85 checks with the navigation guard (`back arrow`, declined
+  prompt, confirmed prompt, unmount) and the locale seats (both dictionaries,
+  the `locale` on both registrations, an English render, a live switch).
 
 ### Documentation
 

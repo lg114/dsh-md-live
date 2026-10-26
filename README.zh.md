@@ -28,6 +28,7 @@ DSH Web 右侧栏的原生 Markdown 预览**与编辑**标签页。
 - **代码块可操作** —— 每块代码悬停时显示语言名和复制按钮；复制会去掉结尾换行，粘进终端不会自己执行。
 - **frontmatter 不混进正文** —— 开头的 `---` 块被单独拎出来折叠显示，而不是变成一条多余的分隔线加一段 `title: …` 正文。
 - **跟随设置** —— 颜色、字号、字体全部读 DSH 的 `--dsw-*` 设计 token，明暗主题、字号步进器、第三方主题都会跟着变。
+- **跟随 DSH 的语言** —— 面板文案是一个 `md-live` locale 命名空间，带 `zh`／`en` 两份字典，所以跟着「设置 → 常规」里选的语言走，并且**实时切换**：slot 渲染器会带着新的 `t` 重新渲染 body 和标签页标题，不用刷新页面。拒绝信息以 code + 参数形式从 Host 传来，所以连沙箱拒绝也是读者当前的语言，而不是把 Host 的中文直接丢过去。
 
 ## 安装
 
@@ -97,7 +98,7 @@ Host（lib/index.js）
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # 只构建 client
 npm run verify         # 两端都跑
-npm run verify:client  # 用 jsdom 挂载真实产物跑 81 项端到端检查
+npm run verify:client  # 用 jsdom 挂载真实产物跑 85 项端到端检查
 npm run verify:host    # 用假 ctx 跑 Host 半身：28 项检查
 npm run clean
 ```
@@ -115,6 +116,7 @@ npm run clean
 - **`preview_md` 不校验路径**：工具只负责把请求带过去，解析和读取由面板做，所以路径错了会在面板里报出来而不是在工具结果里。两边都解析等于对同一个问题给两个答案，而实际生效的是面板那个。
 - **过滤规则只匹配目录名**：任意层级、忽略大小写，不支持 `docs/archive` 这类路径通配。
 - **没有 Mermaid**：```mermaid 保持为带复制按钮的高亮代码块，不是图——测量数据见路线图。
+- **这版还不认识的拒绝 code 会原样显示**，也就是 Host 的中文：面板只翻译自己认识的 code，其余回退到 Host 自己的句子。
 - **公式是 MathML，不是 KaTeX 的 HTML**：交给浏览器自带的排版引擎，所以不需要字体和样式表，但个别结构的观感比 KaTeX 的排版朴素一些。
 - **体积**：client bundle 约 861 KB（marked + DOMPurify + KaTeX + 27 种语言的高亮定义），其中 KaTeX 占约 380 KB。
 
@@ -130,7 +132,7 @@ npm run clean
 
 ## 兼容性
 
-- DSH >= 0.2.0（依赖 `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`；写入 Remote 依赖 `typert`）
+- DSH >= 0.2.0（依赖 `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`；写入 Remote 依赖 `typert`；文案依赖 `locale`）
 - 写入链路在组合里有 `sessions`、`sandboxPolicy` 时会读它们；没有 `sandboxPolicy`（纯 `fs-local`）时不传策略，保持后端原有行为
 - 「交给别处打开」依赖 `remote.session.openWorkspacePath` / `canOpenWorkspacePath`；Host 没有桌面可打开时按钮会自动隐藏
 - `preview_md` 依赖 `@deepseek-ai/dsh-tools`（锁定到 Host 自带的 `0.2.1-rc.2`）；加载不到时只警告并跳过这个工具，不影响插件

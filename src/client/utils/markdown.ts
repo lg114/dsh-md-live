@@ -8,6 +8,7 @@ import hljs from 'highlight.js/lib/core';
 // for this deep path never reach the type checker.
 // @ts-expect-error - the package ships no types for its minified entry
 import katex from 'katex/dist/katex.min.js';
+import { fallbackT, type Translate } from '../locales';
 
 // Only the languages a Markdown document realistically carries. The full
 // highlight.js bundle is ~1.6 MB; this keeps the plugin bundle an order of
@@ -302,8 +303,9 @@ function codeLanguage(code: HTMLElement): string {
  * it — the same contract `highlightWithin` works under.
  *
  * @param root - the container holding the rendered Markdown.
+ * @param t - the locale seat; Chinese when the caller has no locale service.
  */
-export function decorateCodeBlocks(root: HTMLElement | null): void {
+export function decorateCodeBlocks(root: HTMLElement | null, t: Translate = fallbackT): void {
   if (!root) return;
   for (const block of Array.from(root.querySelectorAll('pre'))) {
     const pre = block as HTMLElement;
@@ -326,8 +328,8 @@ export function decorateCodeBlocks(root: HTMLElement | null): void {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'md-live-code-copy';
-    button.textContent = '复制';
-    button.title = '复制这段代码';
+    button.textContent = t('code.copy');
+    button.title = t('code.copyTitle');
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -335,10 +337,10 @@ export function decorateCodeBlocks(root: HTMLElement | null): void {
       // how a copied command ends up running itself in a terminal.
       const text = (code.textContent ?? '').replace(/\n+$/, '');
       void copyText(text).then((ok) => {
-        button.textContent = ok ? '已复制' : '复制失败';
+        button.textContent = ok ? t('code.copied') : t('code.copyFailed');
         button.dataset.state = ok ? 'done' : 'failed';
         setTimeout(() => {
-          button.textContent = '复制';
+          button.textContent = t('code.copy');
           delete button.dataset.state;
         }, 1200);
       });

@@ -39,7 +39,25 @@ function resultCodec() {
       oneOf: [
         { properties: { status: { const: 'saved' }, version: { type: 'string' }, bytes: { type: 'number' } }, required: ['status', 'version', 'bytes'] },
         { properties: { status: { const: 'stale' }, currentVersion: { type: 'string' } }, required: ['status', 'currentVersion'] },
-        { properties: { status: { const: 'denied' }, reason: { type: 'string' } }, required: ['status', 'reason'] },
+        {
+          properties: {
+            status: { const: 'denied' },
+            code: { type: 'string' },
+            reason: { type: 'string' },
+            detail: {
+              type: 'object',
+              properties: {
+                path: { type: 'string' },
+                mode: { type: 'string' },
+                root: { type: 'string' },
+                bytes: { type: 'number' },
+                maxBytes: { type: 'number' },
+              },
+              additionalProperties: false,
+            },
+          },
+          required: ['status', 'reason'],
+        },
         { properties: { status: { const: 'missing' } }, required: ['status'] },
         { properties: { status: { const: 'bad-request' }, reason: { type: 'string' } }, required: ['status', 'reason'] },
         { properties: { status: { const: 'error' }, message: { type: 'string' } }, required: ['status', 'message'] },

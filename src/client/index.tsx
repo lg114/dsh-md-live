@@ -15,6 +15,7 @@ import {
   resultCallId,
 } from './utils/agent-writes';
 import { CLIENT_DESCRIPTORS } from './descriptors.js';
+import { NS, installLocale, t as tr } from './locales';
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -70,7 +71,7 @@ function unwrapRemote<T>(result: any): T {
   if (result && typeof result === 'object' && 'ok' in result) {
     if (!result.ok) {
       const failure = result.error;
-      const message = failure?.message ?? failure?.code ?? '远端调用失败';
+      const message = failure?.message ?? failure?.code ?? tr('error.remoteFailed');
       const error = new Error(String(message));
       (error as any).code = failure?.code;
       throw error;
@@ -269,6 +270,7 @@ function startFollowing(ctx: any): () => void {
 
 export const inject = [
   'slots',
+  'locale',
   'sidebarRightTabs',
   'sidebarRight',
   'remote',
@@ -287,36 +289,26 @@ export const inject = [
  * @param ctx - client root context carrying the slot, tab, and Remote services.
  */
 export function apply(ctx: any) {
+  // The panel's copy follows the app's locale. Registration is fiber-owned, so
+  // the dictionaries leave with the plugin; `t` stays valid across switches
+  // because the service reads the active locale at call time.
+  const t = installLocale(ctx);
+
   // Register the write Remote manifest on the client side so the Gateway
   // creates the `ctx.remote.mdLive` namespace. The Host already registered
   // the service and manifest; this mirrors the descriptor half on the client.
   let mdLiveReady = Promise.resolve();
   if (typeof ctx.remote?.$mount === 'function') {
     try {
-      console.log('[dsh-md-live] Client: 调用 $mount...');
       mdLiveReady = ctx.remote.$mount({
         package: 'dsh-md-live',
         descriptors: CLIENT_DESCRIPTORS,
-      });
-      console.log('[dsh-md-live] Client: $mount 返回:', mdLiveReady);
-      mdLiveReady.then(() => {
-        console.log('[dsh-md-live] Client: $mount 完成');
-        const namespaces = ctx.remote?.namespaces;
-        if (namespaces instanceof Map) {
-          const ns = namespaces.get('mdLive');
-          const service = ns?.service;
-          console.log('[dsh-md-live] Client: service keys:', Object.keys(service || {}));
-          console.log('[dsh-md-live] Client: invokeRemote type:', typeof service?.invokeRemote);
-          console.log('[dsh-md-live] Client: invokeRemote:', service?.invokeRemote);
-        }
-      }).catch(err => {
-        console.error('[dsh-md-live] Client: $mount 失败:', err);
       });
     } catch (err) {
       console.warn('[dsh-md-live] client Remote 注册失败：', err);
     }
   } else {
-    console.warn('[dsh-md-live] Client: ctx.remote.$mount 不可用');
+    console.warn('[dsh-md-live] client: ctx.remote.$mount 不可用');
   }
 
   const api: MdLiveApi = {
@@ -362,7 +354,7 @@ export function apply(ctx: any) {
       // start from the Session's absolute cwd — the same root the official
       // Files tab uses.
       const base = normalizeRoot(root);
-      if (!base) throw new Error('拿不到会话的工作区路径，无法扫描目录');
+      if (!base) throw new Error(t('error.scanNoBase'));
 
       // The workspace is fixed for the Session's lifetime, so one pass covers
       // it: no depth limit worth speaking of, and only caps high enough to
@@ -460,7 +452,7 @@ export function apply(ctx: any) {
       // surface the Remote's own failure instead of "no files".
       if (files.length === 0 && entriesSeen === 0) {
         if (lastError) throw lastError;
-        throw new Error(`目录「${base}」里读不到任何条目`);
+        throw new Error(t('error.scanEmpty', { dir: base }));
       }
       return { root: base, files, truncatedBy, limits, skippedDirs };
     },
@@ -512,7 +504,7 @@ export function apply(ctx: any) {
       }
 
       if (!call) {
-        return { status: 'error', message: '当前 Host 不支持写入（mdLive Remote 服务未注册）' };
+        return { status: 'error', message: t('error.writeUnsupported') };
       }
 
       // The Session id is the wire's first parameter (a `session` lookup): it is
@@ -545,7 +537,7 @@ export function apply(ctx: any) {
             id: 'md-live-preview',
             order: 40,
             title: () => 'md-live',
-            description: () => '在右侧栏预览工作区的 Markdown 文件，文件变化时自动刷新',
+            description: () => t('guide.description'),
           },
         ],
       }),
@@ -557,7 +549,7 @@ export function apply(ctx: any) {
     () =>
       ctx.slots.inject('sidebar.right.pane.tab', () =>
         ctx.slots.register(
-          { name: 'sidebar.right.pane.tab', key: ID, inject: () => ({ api }) },
+          { name: 'sidebar.right.pane.tab', key: ID, locale: NS, inject: () => ({ api }) },
           MarkdownTabBody,
         ),
       ),
@@ -567,7 +559,10 @@ export function apply(ctx: any) {
   ctx.effect(
     () =>
       ctx.slots.inject('sidebar.right.pane.tab.title', () =>
-        ctx.slots.register({ name: 'sidebar.right.pane.tab.title', key: ID }, MarkdownTabTitle),
+        ctx.slots.register(
+          { name: 'sidebar.right.pane.tab.title', key: ID, locale: NS },
+          MarkdownTabTitle,
+        ),
       ),
     'md-live: tab title',
   );

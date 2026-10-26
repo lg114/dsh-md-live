@@ -15,6 +15,7 @@ import {
 } from '../utils/markdown';
 import { TOC } from './TOC';
 import { FOLLOW_STORAGE_KEY } from '../utils/agent-writes';
+import { fallbackT, type Translate } from '../locales';
 
 /** How far a scan may go. Only a safety net: the workspace is scanned whole. */
 export interface MdLiveScanBudget {
@@ -68,14 +69,70 @@ const TOC_STORAGE_KEY = 'dsh-md-live.toc-collapsed.v1';
 /** How many recently opened documents the picker keeps. */
 const MAX_RECENT = 8;
 
+/** Values a translated refusal interpolates, as the Host reports them. */
+export interface DenialDetail {
+  path?: string;
+  mode?: string;
+  root?: string;
+  bytes?: number;
+  maxBytes?: number;
+}
+
 /** Structured write outcome returned by the Host. */
 export type WriteResult =
   | { status: 'saved'; version: string; bytes: number }
   | { status: 'stale'; currentVersion: string }
-  | { status: 'denied'; reason: string }
+  | { status: 'denied'; code?: string; reason: string; detail?: DenialDetail }
   | { status: 'missing' }
   | { status: 'bad-request'; reason: string }
   | { status: 'error'; message: string };
+
+/**
+ * Phrase a refused write in the reader's language.
+ *
+ * The Host sends a `code` beside its own sentence so the panel can say the same
+ * thing in either language; an unknown code (an older Host, or a refusal this
+ * build has not learned yet) falls back to that sentence unchanged.
+ *
+ * @param result - the `denied` result.
+ * @param t - the locale seat.
+ * @returns the message to show under the editor.
+ */
+function denialText(result: { code?: string; reason?: string; detail?: DenialDetail }, t: Translate): string {
+  const detail = result.detail ?? {};
+  const path = String(detail.path ?? '');
+  switch (result.code) {
+    case 'read-only':
+      return t('write.denied.readOnly', { path });
+    case 'read-only-file':
+      return t('write.denied.fileReadOnly', { path });
+    case 'sandbox-root':
+      return t('write.denied.root', {
+        mode: String(detail.mode ?? ''),
+        root: String(detail.root ?? ''),
+        path,
+      });
+    case 'not-observed':
+      return t('write.denied.notObserved', { path });
+    case 'too-large':
+      return t('write.denied.tooLarge', {
+        bytes: Number(detail.bytes ?? 0),
+        max: Number(detail.maxBytes ?? 0),
+      });
+    case 'not-markdown':
+      return t('write.denied.notMarkdown', { path });
+    case 'no-session':
+      return t('write.denied.noSession');
+    case 'permission':
+      return t('write.denied.permission', { path });
+    case 'not-found':
+      return t('write.denied.notFound', { path });
+    case 'io':
+      return t('write.denied.io', { message: String(result.reason ?? '') });
+    default:
+      return result.reason ?? t('error.saveFailed');
+  }
+}
 
 /** Read one JSON value; a missing or broken entry yields `undefined`. */
 function readStored<T>(key: string): T | undefined {
@@ -245,16 +302,16 @@ const EMPTY_LIST: ListState = {
 };
 
 /** One line explaining why the list is shorter than the workspace. */
-function truncationNote(by: MdLiveTruncation, limits: MdLiveScanBudget): string {
+function truncationNote(by: MdLiveTruncation, limits: MdLiveScanBudget, t: Translate): string {
   switch (by) {
     case 'depth':
-      return `目录层级超过 ${limits.depth} 层，更深的位置没有列出`;
+      return t('truncation.depth', { depth: limits.depth });
     case 'dirs':
-      return `目录数量超过 ${limits.dirs} 个，其余目录没有列出`;
+      return t('truncation.dirs', { dirs: limits.dirs });
     case 'files':
-      return `只列出前 ${limits.files} 个文件`;
+      return t('truncation.files', { files: limits.files });
     case 'entries':
-      return '有目录的条目过多，Host 只返回了其中一部分';
+      return t('truncation.entries');
     default:
       return '';
   }
@@ -278,12 +335,20 @@ function readingVars(reading: ReadingSettings): React.CSSProperties {
  * file watch, which is what makes an Agent rewrite show up without a reload.
  */
 export function MarkdownTabBody(props: any) {
-  const { useTabInfo, useSessions, sessionId, api } = props as {
+  const { useTabInfo, useSessions, sessionId, api, t: injectedT } = props as {
     useTabInfo?: () => any;
     useSessions?: (selector: (sessions: any) => any) => any;
     sessionId?: string;
     api?: MdLiveApi;
+    /** DSH's locale seat: present because the registration names a `locale`. */
+    t?: Translate;
   };
+
+  // The slot renderer re-renders this body when the reader switches language,
+  // handing over a `t` bound to the new locale. Without that seat (the
+  // verification harness, a shell without a locale service) Chinese is the
+  // fallback, which is also what the plugin's own defaults say.
+  const t: Translate = injectedT ?? fallbackT;
 
   const info = typeof useTabInfo === 'function' ? useTabInfo() : undefined;
   const tab = info?.tab;
@@ -338,17 +403,17 @@ export function MarkdownTabBody(props: any) {
   // answers for the current draft rather than the one at mount time.
   useEffect(() => {
     api?.setDiscardGuard?.(() =>
-      !dirtyRef.current || window.confirm('有未保存的更改，确定放弃吗？'),
+      !dirtyRef.current || window.confirm(t('edit.discard')),
     );
     return () => api?.setDiscardGuard?.(null);
-  }, [api]);
+  }, [api, t]);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!path || !api) return;
       if (!sessionId) {
         setStatus('error');
-        setError('没有会话上下文，无法读取文件');
+        setError(t('error.noSessionRead'));
         return;
       }
       const own = signal ?? new AbortController().signal;
@@ -372,7 +437,7 @@ export function MarkdownTabBody(props: any) {
         setStatus('error');
       }
     },
-    [api, sessionId, path],
+    [api, sessionId, path, t],
   );
 
   useEffect(() => {
@@ -426,15 +491,15 @@ export function MarkdownTabBody(props: any) {
   useEffect(() => {
     if (path) return;
     if (!api) {
-      setList({ ...EMPTY_LIST, status: 'error', error: '预览接口没有注入' });
+      setList({ ...EMPTY_LIST, status: 'error', error: t('error.noPreviewApi') });
       return;
     }
     if (!sessionId) {
-      setList({ ...EMPTY_LIST, status: 'error', error: '没有会话上下文，无法扫描工作区' });
+      setList({ ...EMPTY_LIST, status: 'error', error: t('error.noSessionScan') });
       return;
     }
     if (!root) {
-      setList({ ...EMPTY_LIST, status: 'error', error: '还没有拿到会话的工作区路径' });
+      setList({ ...EMPTY_LIST, status: 'error', error: t('error.noWorkspacePath') });
       return;
     }
     const ac = new AbortController();
@@ -460,7 +525,7 @@ export function MarkdownTabBody(props: any) {
       }
     })();
     return () => ac.abort();
-  }, [path, api, sessionId, root, skipDirs]);
+  }, [path, api, sessionId, root, skipDirs, t]);
 
   // Ask once per Session whether the Host can hand a path to the OS. It cannot
   // when the browser is attached over the network, and offering a dead button
@@ -515,7 +580,7 @@ export function MarkdownTabBody(props: any) {
     if (status !== 'ready') return;
     highlightWithin(previewRef.current);
     renderMathWithin(previewRef.current);
-    decorateCodeBlocks(previewRef.current);
+    decorateCodeBlocks(previewRef.current, t);
   }, [html, status]);
 
   const scrollToHeading = useCallback((id: string) => {
@@ -597,17 +662,17 @@ export function MarkdownTabBody(props: any) {
 
   const exitEdit = useCallback(() => {
     if (dirtyRef.current) {
-      if (!window.confirm('有未保存的更改，确定放弃吗？')) return;
+      if (!window.confirm(t('edit.discard'))) return;
     }
     setEditMode(false);
     setEditDraft('');
     setEditVersion('');
-  }, []);
+  }, [t]);
 
   const handleSave = useCallback(async () => {
     if (!api?.writeText || saving) return;
     if (!sessionId) {
-      setError('没有会话上下文，无法保存');
+      setError(t('error.noSessionSave'));
       return;
     }
     setSaving(true);
@@ -621,11 +686,11 @@ export function MarkdownTabBody(props: any) {
       } else if (result.status === 'stale') {
         setShowStale(true);
       } else {
-        const msg = result.status === 'denied' ? result.reason
-          : result.status === 'missing' ? '文件不存在'
+        const msg = result.status === 'denied' ? denialText(result, t)
+          : result.status === 'missing' ? t('error.fileMissing')
           : result.status === 'bad-request' ? result.reason
           : result.status === 'error' ? result.message
-          : '保存失败';
+          : t('error.saveFailed');
         setError(msg);
       }
     } catch (err: any) {
@@ -633,13 +698,13 @@ export function MarkdownTabBody(props: any) {
     } finally {
       setSaving(false);
     }
-  }, [api, path, editDraft, editVersion, saving, sessionId]);
+  }, [api, path, editDraft, editVersion, saving, sessionId, t]);
 
   const forceSave = useCallback(async () => {
     setShowStale(false);
     if (!api?.writeText) return;
     if (!sessionId) {
-      setError('没有会话上下文，无法保存');
+      setError(t('error.noSessionSave'));
       return;
     }
     setSaving(true);
@@ -651,7 +716,11 @@ export function MarkdownTabBody(props: any) {
         setEditVersion(result.version);
         setError('');
       } else {
-        const msg = result.status === 'error' ? result.message : '保存失败';
+        const msg = result.status === 'error'
+          ? result.message
+          : result.status === 'denied'
+            ? denialText(result, t)
+            : t('error.saveFailed');
         setError(msg);
       }
     } catch (err: any) {
@@ -659,7 +728,7 @@ export function MarkdownTabBody(props: any) {
     } finally {
       setSaving(false);
     }
-  }, [api, path, editDraft, saving, sessionId]);
+  }, [api, path, editDraft, saving, sessionId, t]);
 
   const reloadFromDisk = useCallback(() => {
     setShowStale(false);
@@ -757,8 +826,8 @@ export function MarkdownTabBody(props: any) {
     return recent.filter((item) => known.has(item));
   }, [recent, list.status, list.files]);
 
-  const scannedRoot = list.root ? list.root : '工作区根目录';
-  const where = list.root ? `「${list.root}」` : '工作区';
+  const scannedRoot = list.root ? list.root : t('picker.root');
+  const where = list.root ? t('picker.where', { root: list.root }) : t('picker.theWorkspace');
   const scanning = list.status === 'loading' || list.status === 'idle';
   // The header names the file and where it sits, relative to the workspace; the
   // absolute path stays in the tooltip.
@@ -788,8 +857,8 @@ export function MarkdownTabBody(props: any) {
           <button
             className="md-live-back"
             onClick={() => pick('')}
-            title="返回文件列表"
-            aria-label="返回文件列表"
+            title={t('doc.back')}
+            aria-label={t('doc.back')}
           >
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
               <path
@@ -820,8 +889,8 @@ export function MarkdownTabBody(props: any) {
                 <button
                   className="md-live-btn md-live-icon-btn"
                   onClick={() => void api?.openPath(path)}
-                  title="用系统默认应用打开"
-                  aria-label="用系统默认应用打开"
+                  title={t('doc.openExternal')}
+                  aria-label={t('doc.openExternal')}
                 >
                   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                     <path
@@ -845,8 +914,8 @@ export function MarkdownTabBody(props: any) {
                 <button
                   className="md-live-btn md-live-icon-btn"
                   onClick={() => void api?.openPath(path, 'reveal')}
-                  title="在文件管理器中显示"
-                  aria-label="在文件管理器中显示"
+                  title={t('doc.reveal')}
+                  aria-label={t('doc.reveal')}
                 >
                   <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                     <path
@@ -863,8 +932,8 @@ export function MarkdownTabBody(props: any) {
             <button
               className="md-live-btn md-live-icon-btn"
               onClick={() => setSettingsOpen((open) => !open)}
-              title="面板设置"
-              aria-label="面板设置"
+              title={t('doc.settings')}
+              aria-label={t('doc.settings')}
               aria-expanded={settingsOpen}
             >
               Aa
@@ -873,9 +942,9 @@ export function MarkdownTabBody(props: any) {
               <button
                 className="md-live-btn"
                 onClick={() => void load()}
-                title="这个文件无法自动监听变化，点此重新读取"
+                title={t('doc.refreshTitle')}
               >
-                刷新
+                {t('doc.refresh')}
               </button>
             ) : null}
             {api?.writeText && status === 'ready' ? (
@@ -885,39 +954,39 @@ export function MarkdownTabBody(props: any) {
                     className="md-live-btn"
                     onClick={handleSave}
                     disabled={saving || !isDirty}
-                    title={saving ? '保存中…' : isDirty ? '保存 (Ctrl+S)' : '无更改'}
+                    title={saving ? t('edit.saving') : isDirty ? t('edit.saveTitle') : t('edit.noChange')}
                   >
-                    {saving ? '保存中…' : '保存'}
+                    {saving ? t('edit.saving') : t('edit.save')}
                   </button>
                   <button
                     className="md-live-btn"
                     onClick={exitEdit}
-                    title="返回预览"
+                    title={t('edit.previewTitle')}
                   >
-                    预览
+                    {t('edit.preview')}
                   </button>
                 </>
               ) : (
                 <button
                   className="md-live-btn"
                   onClick={enterEdit}
-                  title="编辑源文件"
+                  title={t('edit.start')}
                 >
-                  编辑
+                  {t('edit.label')}
                 </button>
               )
             ) : null}
             {settingsOpen ? (
-              <div className="md-live-settings" role="dialog" aria-label="面板设置">
+              <div className="md-live-settings" role="dialog" aria-label={t('doc.settings')}>
                 <label className="md-live-settings-row">
-                  <span>字号</span>
+                  <span>{t('settings.fontSize')}</span>
                   <select
                     value={reading.fontSize === null ? '' : String(reading.fontSize)}
                     onChange={(e) =>
                       updateReading({ fontSize: e.target.value ? Number(e.target.value) : null })
                     }
                   >
-                    <option value="">跟随设置</option>
+                    <option value="">{t('settings.followApp')}</option>
                     <option value="13">13px</option>
                     <option value="14">14px</option>
                     <option value="15">15px</option>
@@ -926,14 +995,14 @@ export function MarkdownTabBody(props: any) {
                   </select>
                 </label>
                 <label className="md-live-settings-row">
-                  <span>行距</span>
+                  <span>{t('settings.lineHeight')}</span>
                   <select
                     value={reading.lineHeight === null ? '' : String(reading.lineHeight)}
                     onChange={(e) =>
                       updateReading({ lineHeight: e.target.value ? Number(e.target.value) : null })
                     }
                   >
-                    <option value="">跟随设置</option>
+                    <option value="">{t('settings.followApp')}</option>
                     <option value="1.5">1.5</option>
                     <option value="1.6">1.6</option>
                     <option value="1.7">1.7</option>
@@ -942,14 +1011,14 @@ export function MarkdownTabBody(props: any) {
                   </select>
                 </label>
                 <label className="md-live-settings-row">
-                  <span>行宽</span>
+                  <span>{t('settings.width')}</span>
                   <select
                     value={reading.width === null ? '' : String(reading.width)}
                     onChange={(e) =>
                       updateReading({ width: e.target.value ? Number(e.target.value) : null })
                     }
                   >
-                    <option value="">跟随设置</option>
+                    <option value="">{t('settings.followApp')}</option>
                     <option value="640">640px</option>
                     <option value="760">760px</option>
                     <option value="900">900px</option>
@@ -965,11 +1034,11 @@ export function MarkdownTabBody(props: any) {
                       writeStored(FOLLOW_STORAGE_KEY, next);
                     }}
                   />
-                  <span>跟随 Agent 写入</span>
+                  <span>{t('settings.followWrites')}</span>
                 </label>
                 <div className="md-live-settings-actions">
                   <button className="md-live-btn" onClick={() => updateReading(DEFAULT_READING)}>
-                    恢复默认
+                    {t('settings.restore')}
                   </button>
                 </div>
               </div>
@@ -989,35 +1058,35 @@ export function MarkdownTabBody(props: any) {
                   <span>{scannedRoot}</span>
                   <span className="md-live-picker-count">
                     {scanning
-                      ? '扫描中…'
+                      ? t('picker.scanning')
                       : query.trim()
-                        ? `${visible.length} / ${list.files.length} 个文件`
-                        : `${list.files.length} 个文件`}
+                        ? t('picker.count', { visible: visible.length, total: list.files.length })
+                        : t('picker.countAll', { total: list.files.length })}
                   </span>
                 </div>
                 <input
                   className="md-live-search"
                   value={query}
                   spellCheck={false}
-                  placeholder="搜索文件名或路径"
-                  aria-label="搜索 Markdown 文件"
+                  placeholder={t('picker.search')}
+                  aria-label={t('picker.searchAria')}
                   onChange={(e) => setQuery(e.target.value)}
                 />
                 {list.files.length === 0 ? (
                   <div className="md-live-status">
-                    {scanning ? `正在扫描${where}…` : `${where}里没有 Markdown 文件`}
+                    {scanning ? t('picker.scanningWhere', { where }) : t('picker.emptyWhere', { where })}
                   </div>
                 ) : visible.length === 0 ? (
-                  <div className="md-live-status">没有匹配「{query.trim()}」的文件</div>
+                  <div className="md-live-status">{t('picker.noMatch', { query: query.trim() })}</div>
                 ) : (
                   <div className="md-live-picker-list">
                     {!query.trim() && recentVisible.length > 0 ? (
                       <>
-                        <div className="md-live-picker-section">最近打开</div>
+                        <div className="md-live-picker-section">{t('picker.recent')}</div>
                         {recentVisible.map((abs) =>
                           renderRow(abs, relativeTo(list.root || root, abs), 'recent:'),
                         )}
-                        <div className="md-live-picker-section">全部文件</div>
+                        <div className="md-live-picker-section">{t('picker.all')}</div>
                       </>
                     ) : null}
                     {visible.map((abs) =>
@@ -1029,10 +1098,10 @@ export function MarkdownTabBody(props: any) {
                   <div className="md-live-picker-note">
                     <span>
                       {list.truncatedBy
-                        ? truncationNote(list.truncatedBy, list.limits)
+                        ? truncationNote(list.truncatedBy, list.limits, t)
                         : skipDirs.length === 0
-                          ? '已包含所有目录'
-                          : `已跳过 ${list.skippedDirs} 个目录（${skipDirs.length} 条过滤规则）`}
+                          ? t('picker.rulesAll')
+                          : t('picker.rulesSkipped', { skipped: list.skippedDirs, rules: skipDirs.length })}
                     </span>
                     <button
                       className="md-live-btn"
@@ -1041,7 +1110,7 @@ export function MarkdownTabBody(props: any) {
                         setRulesOpen((open) => !open);
                       }}
                     >
-                      {rulesOpen ? '收起规则' : '过滤规则'}
+                      {rulesOpen ? t('picker.rulesClose') : t('picker.rulesOpen')}
                     </button>
                   </div>
                 ) : null}
@@ -1051,7 +1120,7 @@ export function MarkdownTabBody(props: any) {
                       className="md-live-rules-input"
                       value={draft}
                       spellCheck={false}
-                      placeholder="一行一个目录名，例如 node_modules"
+                      placeholder={t('picker.rulesHint')}
                       onChange={(e) => setDraft(e.target.value)}
                     />
                     <div className="md-live-rules-actions">
@@ -1064,7 +1133,7 @@ export function MarkdownTabBody(props: any) {
                           setRulesOpen(false);
                         }}
                       >
-                        保存
+                        {t('picker.rulesSave')}
                       </button>
                       <button
                         className="md-live-btn"
@@ -1075,7 +1144,7 @@ export function MarkdownTabBody(props: any) {
                           saveSkipDirs(next);
                         }}
                       >
-                        恢复默认
+                        {t('picker.rulesRestore')}
                       </button>
                       <button
                         className="md-live-btn"
@@ -1085,7 +1154,7 @@ export function MarkdownTabBody(props: any) {
                           saveSkipDirs([]);
                         }}
                       >
-                        全部显示
+                        {t('picker.rulesShowAll')}
                       </button>
                     </div>
                   </div>
@@ -1096,7 +1165,7 @@ export function MarkdownTabBody(props: any) {
         ) : status === 'error' ? (
           <div className="md-live-status md-live-status-error">{error}</div>
         ) : status !== 'ready' ? (
-          <div className="md-live-status">读取中…</div>
+          <div className="md-live-status">{t('doc.loading')}</div>
         ) : editMode ? (
           <div className="md-live-editor-wrap">
             {error ? (
@@ -1119,6 +1188,7 @@ export function MarkdownTabBody(props: any) {
                   collapsed={tocCollapsed}
                   onToggle={toggleToc}
                   onHeadingClick={scrollToHeading}
+                  t={t}
                 />
               </div>
             )}
@@ -1130,7 +1200,7 @@ export function MarkdownTabBody(props: any) {
               {doc.meta ? (
                 <details className="md-live-frontmatter">
                   <summary>
-                    frontmatter · {doc.meta.split('\n').length} 行
+                    {t('doc.frontmatter', { count: doc.meta.split('\n').length })}
                   </summary>
                   <pre>{doc.meta}</pre>
                 </details>
@@ -1146,12 +1216,12 @@ export function MarkdownTabBody(props: any) {
       </div>
       {showStale ? (
         <div className="md-live-dialog-overlay">
-          <div className="md-live-dialog" role="alertdialog" aria-label="文件已被外部修改">
-            <p className="md-live-dialog-title">文件已被外部修改</p>
-            <p className="md-live-dialog-body">其他程序或 Agent 已修改了这个文件。您可以覆盖它或重新加载。</p>
+          <div className="md-live-dialog" role="alertdialog" aria-label={t('stale.title')}>
+            <p className="md-live-dialog-title">{t('stale.title')}</p>
+            <p className="md-live-dialog-body">{t('stale.body')}</p>
             <div className="md-live-dialog-actions">
-              <button className="md-live-btn" onClick={reloadFromDisk}>重新加载</button>
-              <button className="md-live-btn md-live-btn-primary" onClick={forceSave}>覆盖</button>
+              <button className="md-live-btn" onClick={reloadFromDisk}>{t('stale.reload')}</button>
+              <button className="md-live-btn md-live-btn-primary" onClick={forceSave}>{t('stale.overwrite')}</button>
             </div>
           </div>
         </div>

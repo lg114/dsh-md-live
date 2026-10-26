@@ -110,7 +110,7 @@ const tree = (dir) => WORKSPACE[dir] ?? { path: dir, entries: [] };
 // the absolute workspace root the Remote requires.
 const sessionsHook = (selector) => selector({ byId: { s1: { cwd: 'C:\\w' } } });
 
-const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [], layout: [] };
+const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [], layout: [], locales: null };
 // Frames the fake Session stream hands to the plugin, in order.
 const followQueue = [];
 const followRequests = [];
@@ -135,6 +135,12 @@ dom.window.open = (url) => {
 const fakeCtx = {
   effect(fn) { const d = fn(); return () => { if (typeof d === 'function') d(); }; },
   sidebarRightTabs: { register(def) { captured.tabType = def; return () => {}; } },
+  locale: {
+    register(ns, dicts) { captured.locales = { ns, dicts }; return () => {}; },
+    // The real service binds per namespace and reads the active locale at call
+    // time; Chinese is enough here because the components get 	 as a prop.
+    bind() { return (key) => captured.locales?.dicts?.zh?.[key] ?? key; },
+  },
   sidebarRight: { openTab(kind, opts) { captured.opens.push([kind, opts]); }, mounted: mountedStore },
   layout: {
     openRightbar(track, fullscreen) {
@@ -888,6 +894,41 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('74) unmounting clears the navigation guard:',
     askedAfterUnmount === 0 && captured.opens.length === 2);
   dom.window.confirm = () => true;
+
+  // --- locale: one namespace, both dictionaries, a live switch ---
+  const dicts = captured.locales?.dicts;
+  const zhKeys = dicts?.zh ? Object.keys(dicts.zh) : [];
+  const enKeys = dicts?.en ? Object.keys(dicts.en) : [];
+  console.log('75) registers zh and en under one namespace:',
+    captured.locales?.ns === 'md-live' &&
+    zhKeys.length > 20 &&
+    zhKeys.length === enKeys.length &&
+    zhKeys.every((key) => enKeys.includes(key)));
+  console.log('76) the body and title registrations name the locale:',
+    captured.body?.opts?.locale === 'md-live' && captured.title?.opts?.locale === 'md-live');
+
+  const enDict = dicts?.en ?? {};
+  const enSeat = (key) => enDict[key] ?? key;
+  const locEl = document.createElement('div');
+  document.body.appendChild(locEl);
+  const r19 = createRoot(locEl);
+  const localeProps = (t) => ({
+    useTabInfo: () => ({ tab: { id: 't19', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api, t,
+  });
+  r19.render(React.createElement(captured.body.Comp, localeProps(enSeat)));
+  await wait(200);
+  const enLabels = [...locEl.querySelectorAll('.md-live-actions button')].map((b) => b.textContent.trim());
+  console.log('77) an English seat renders English actions:', enLabels.includes('Edit'));
+
+  // Switching the seat is what DSH does on a locale change: the same body
+  // re-renders with the newly bound `t`, no remount.
+  r19.render(React.createElement(captured.body.Comp, localeProps(undefined)));
+  await wait(80);
+  const zhLabels = [...locEl.querySelectorAll('.md-live-actions button')].map((b) => b.textContent.trim());
+  console.log('78) switching the seat re-renders the actions in Chinese:',
+    zhLabels.includes('编辑') && !zhLabels.includes('Edit'));
+  r19.unmount();
 
   process.exit(0);
 })();

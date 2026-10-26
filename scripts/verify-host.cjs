@@ -261,6 +261,9 @@ const { pathToFileURL } = require('url');
     const r9 = await adWriter.writeText(SESSION, 'notes.md', 'hello', 'v1');
     console.log('26) sandbox denial names the mode and root:',
       r9.status === 'denied' &&
+      r9.code === 'sandbox-root' &&
+      r9.detail?.mode === 'workspace-write' &&
+      r9.detail?.root === '/workspace' &&
       r9.reason.includes('沙箱') &&
       r9.reason.includes('workspace-write') &&
       r9.reason.includes('/workspace') &&
