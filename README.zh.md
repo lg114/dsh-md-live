@@ -104,10 +104,12 @@ npm run clean
 
 ## 路线图
 
-- [ ] Mermaid
 - [ ] 编辑并保存（需要写入 API）
 
-「按需懒加载高亮语言」不在这个列表里，因为在这里做不了：客户端产物一个 module id 只对应一个文件，经 `__ModuleLoader__.load({ id, factory })` 加载，没有地方放第二个 chunk。改成精简语言表也实测过——27 种砍到 15 种只省 133 KB，代价是丢掉 c、cpp、csharp、php、ruby、swift、kotlin、lua、perl、r、ini、scss，同样不划算。
+有两项故意不在列表里，原因相同：成本由每个读者承担，收益只落在少数用到它的文档上。
+
+- **高亮语言按需懒加载**在这里做不了。客户端产物一个 module id 只对应一个文件，经 `__ModuleLoader__.load({ id, factory })` 加载，没有地方放第二个 chunk。改成精简语言表也量过——27 种砍到 15 种省 133 KB，代价是丢掉 c、cpp、csharp、php、ruby、swift、kotlin、lua、perl、r、ini、scss。
+- **Mermaid** 是量出来的，不是猜的：打包后增加 11.2 MB（未压缩）、5.0 MB（压缩）。它的 ESM 入口只有 54 KB，是因为内部拆成了动态 import，而这种模块格式必须把它们全部内联。所以 ```mermaid 围栏保持为带复制按钮的高亮代码块——对一个 5 MB 的引擎来说，这个交换是划算的。
 
 ## 兼容性
 

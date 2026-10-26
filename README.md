@@ -104,15 +104,21 @@ npm run clean
 
 ## Roadmap
 
-- [ ] Mermaid
 - [ ] Edit and save (needs a write API)
 
-Lazy-loading the highlight.js languages is not on this list because it cannot
-work here: a Client bundle is one file per module id, loaded through
-`__ModuleLoader__.load({ id, factory })`, so there is nowhere to put a second
-chunk. Trimming the language list was measured instead — 27 languages down to 15
-saves 133 KB and costs c, cpp, csharp, php, ruby, swift, kotlin, lua, perl, r,
-ini and scss — and it was not worth it either.
+Two items are deliberately absent, both for the same reason: every reader pays
+for them, and only the few documents that use them benefit.
+
+- **Lazy-loading the highlight.js languages** cannot work here. A Client bundle
+  is one file per module id, loaded through `__ModuleLoader__.load({ id,
+  factory })`, so there is nowhere to put a second chunk. Trimming the list was
+  measured too — 27 languages down to 15 saves 133 KB and costs c, cpp, csharp,
+  php, ruby, swift, kotlin, lua, perl, r, ini and scss.
+- **Mermaid** was measured rather than guessed: bundling it adds 11.2 MB
+  unminified and 5.0 MB minified. Its ESM entry is only 54 KB because it splits
+  itself into dynamic imports, and this module format has to inline every one of
+  them. A ```mermaid fence therefore stays a highlighted code block with a copy
+  control, which is a fair trade for a 5 MB engine.
 
 ## Compatibility
 
