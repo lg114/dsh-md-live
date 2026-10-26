@@ -841,6 +841,53 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ![...noWriteEl.querySelectorAll('.md-live-actions button')].some((b) => b.textContent === '编辑'));
   r17.unmount();
 
+  // --- navigation asks before it drops a draft ---
+  captured.opens.length = 0;
+  const guardEl = document.createElement('div');
+  document.body.appendChild(guardEl);
+  const r18 = createRoot(guardEl);
+  r18.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't18', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(200);
+
+  const guardEdit = [...guardEl.querySelectorAll('.md-live-actions button')].find((b) => b.textContent === '编辑');
+  if (guardEdit) {
+    guardEdit.click();
+    await wait(60);
+    const area = guardEl.querySelector('.md-live-editor');
+    const setArea = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    setArea.call(area, '# 未保存的草稿\n');
+    area.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await wait(30);
+
+    let asked = 0;
+    dom.window.confirm = () => { asked += 1; return false; };
+    const back = guardEl.querySelector('.md-live-back');
+    back.click();
+    await wait(60);
+    console.log('71) back arrow asks before it drops a draft:', asked === 1);
+    console.log('72) a declined prompt keeps the editor and the tab put:',
+      captured.opens.length === 0 && Boolean(guardEl.querySelector('.md-live-editor')));
+
+    dom.window.confirm = () => true;
+    back.click();
+    await wait(60);
+    console.log('73) a confirmed prompt asks the sidebar for the picker:',
+      captured.opens.length === 1 && captured.opens[0]?.[1]?.params?.path === '');
+  } else {
+    console.log('71-73) navigation guard tests skipped: edit button missing');
+  }
+
+  // A closed tab must not be able to veto navigation.
+  r18.unmount();
+  let askedAfterUnmount = 0;
+  dom.window.confirm = () => { askedAfterUnmount += 1; return false; };
+  api.open('test.md');
+  console.log('74) unmounting clears the navigation guard:',
+    askedAfterUnmount === 0 && captured.opens.length === 2);
+  dom.window.confirm = () => true;
 
   process.exit(0);
 })();

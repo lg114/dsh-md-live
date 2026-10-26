@@ -12,7 +12,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Whole-workspace scan** — walks the entire tree from the Session's workspace root, eight listings in flight per level, drawing results level by level: the first level shows up while the rest is still being walked.
 - **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
 - **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
-- **Edit and save in place** — **编辑** turns the document into a textarea over the same file; **保存** (or `Ctrl/Cmd+S`) writes it back. Saving is optimistic: the request carries the version the editor started from, and a file that changed underneath raises a dialog with **覆盖** and **重新加载** instead of quietly losing one side. Leaving edit mode with unsaved changes asks first, and a live update never overwrites a dirty draft.
+- **Edit and save in place** — **编辑** turns the document into a textarea over the same file; **保存** (or `Ctrl/Cmd+S`) writes it back. Saving is optimistic: the request carries the version the editor started from, and a file that changed underneath raises a dialog with **覆盖** and **重新加载** instead of quietly losing one side. A draft is guarded wherever the plugin navigates: the back arrow, another file from the picker, an Agent-follow switch and a browser unload all ask before they drop it, and a live update never overwrites a dirty draft.
 - **Follows the Agent, even with the panel closed** — when the Agent finishes writing a `.md` inside the workspace, the panel opens on that file. The subscription is plugin-level and fed by `remote.session.follow` for whichever Session is on screen, so it works whether or not a tab was already open. The switch waits for `tool/result` rather than `tool/call`, so the file is read after the write landed instead of before it. One checkbox in the panel settings turns it off.
 - **The Agent can ask, not just write** — a `preview_md` tool lets it put a document on screen on request ("show me the notes"). It is honoured even when automatic following is off, because that one was asked for.
 - **The path is visible** — the header shows `directory/filename` relative to the workspace, with the absolute path in the tooltip. In a narrow panel the directory gives way first; the filename never truncates.
@@ -97,7 +97,7 @@ Every fallback errs toward refusing: an unresolved lookup is retried as a plain 
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
 npm run verify         # both halves
-npm run verify:client  # mount the built bundle in jsdom and run 77 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 81 end-to-end checks
 npm run verify:host    # run the built Host half against a fake context: 28 checks
 npm run clean
 ```
@@ -110,6 +110,7 @@ npm run clean
 
 - **Writes go through a custom Remote, not `workspaceFiles`**: `workspaceFiles` has no mutation API, so `mdLive/writeText` supplies one (see [Write path](#write-path)). Saving needs a *live* Session, because the mode and the root are both resolved from it; a Session that is not live is refused rather than written with a guessed mode. The Session id is client-supplied — a selector, not an authorization, since the Host alone decides the mode and root. That is also the official model: `workspaceFileScope` is a lookup over a client-supplied id, and DSH authenticates the *caller* (an owner Peer behind the Host/Origin fence, plus a process token), not which Session a call belongs to. A Remote handler never sees the Peer, so a plugin cannot tighten this by itself.
 - **Following reads tool arguments, not the filesystem**: a `.md` the Agent rewrites through `bash` (`cat > x.md`, a heredoc) is not followed, because that call carries no path. `write`, `edit` and `str_replace_editor` are.
+- **A draft cannot survive the tab being closed with its `×`**: the right Sidebar offers no per-tab close veto (`canCloseTab` only refuses the guide standing alone), so the body is unmounted and its draft with it. The guard covers every navigation the plugin starts — back, picker, follow — and the browser-level `beforeunload`, not an in-app close.
 - **Following only watches the Session on screen**: a write in a background Session opens nothing, because that is not the conversation the reader is in.
 - **`preview_md` does not verify the path**: the tool carries the request, and the panel resolves and reads it, so a wrong path surfaces in the panel rather than in the tool result. Resolving in both places would be two answers to one question, and the panel's is the one that gets used.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.

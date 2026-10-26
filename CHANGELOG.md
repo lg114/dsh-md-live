@@ -24,6 +24,11 @@ Writing from the panel, fenced by the right policy.
   names the sandbox mode and the root it allows, and a read-only mode reads as
   a read-only refusal instead of a containment failure — the two used to be
   indistinguishable because both arrive as "access denied".
+- Navigating away from a dirty editor no longer drops the draft in silence. The
+  plugin now asks the mounted tab before it points the tab elsewhere, so the
+  back arrow, another file from the picker and an Agent-follow switch all
+  confirm first; declining leaves the editor and the tab exactly where they
+  were. Unmounting clears the question, so a closed tab cannot veto navigation.
 
 ### Changed
 
@@ -34,7 +39,9 @@ Writing from the panel, fenced by the right policy.
   normalizes the path, and the tab already holds the absolute spelling the
   workspace listing used.
 - `verify:host` gained the policy-forwarding check and the denial-message
-  check; the client suite now asserts the Session id rides along with a save.
+  check; the client suite now asserts the Session id rides along with a save,
+  and grew to 81 checks with the navigation guard (`back arrow`, declined
+  prompt, confirmed prompt, unmount).
 
 ### Documentation
 

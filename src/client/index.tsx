@@ -34,6 +34,26 @@ const SCAN_LIMITS: MdLiveScanBudget = { depth: 12, dirs: 1500, files: 2000 };
 const SCAN_CONCURRENCY = 8;
 
 /**
+ * The mounted tab's "you have unsaved edits" question, when a tab is mounted.
+ *
+ * The draft lives in the tab body, but every navigation starts out here: the
+ * back arrow, the picker and the Agent-follow switch all ask the sidebar to
+ * point this tab at another path, which resets the editor. So the body
+ * registers its question while mounted, and each of those paths asks it before
+ * navigating. Without it a click on the back arrow silently dropped the draft.
+ */
+let discardGuard: (() => boolean) | null = null;
+
+/**
+ * Ask the mounted tab before a navigation would throw its draft away.
+ *
+ * @returns whether navigation may go ahead (true when no tab is mounted).
+ */
+function mayNavigate(): boolean {
+  return discardGuard === null || discardGuard();
+}
+
+/**
  * Unwrap a Typert Remote result.
  *
  * Every `ctx.remote.*` call resolves to `{ ok: true, value } | { ok: false, error }`,
@@ -157,6 +177,9 @@ function startFollowing(ctx: any): () => void {
    * later calls navigate the tab the first one created.
    */
   const show = (path: string) => {
+    // One question per switch: the retries below place the same tab, so the
+    // answer is taken once, before anything is revealed or placed.
+    if (!mayNavigate()) return;
     const place = () => {
       if (disposed) return;
       try {
@@ -298,11 +321,15 @@ export function apply(ctx: any) {
 
   const api: MdLiveApi = {
     open: (path: string) => {
+      if (!mayNavigate()) return;
       try {
         ctx.sidebarRight.openTab(KIND, { params: { path } });
       } catch (err) {
         console.error('[dsh-md-live] openTab failed:', err);
       }
+    },
+    setDiscardGuard: (guard: (() => boolean) | null) => {
+      discardGuard = guard;
     },
     readText: async (sessionId: string, path: string, signal: AbortSignal) => {
       const bytes = unwrapRemote<any>(

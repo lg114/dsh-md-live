@@ -169,6 +169,13 @@ function loadReading(): ReadingSettings {
 export interface MdLiveApi {
   /** Re-open this tab with another file (empty string goes back to the picker). */
   open: (path: string) => void;
+  /**
+   * Register the mounted body's "discard the draft?" question, so a navigation
+   * the plugin owns — the back arrow, another file from the picker, an
+   * Agent-follow switch — asks before it resets the editor. Pass `null` when
+   * the body unmounts.
+   */
+  setDiscardGuard?: (guard: (() => boolean) | null) => void;
   /** Read a workspace file as UTF-8 text, returning the content and its version token. */
   readText: (sessionId: string, path: string, signal: AbortSignal) => Promise<{ content: string; version: string }>;
   /** Scan the whole workspace tree for Markdown files, reporting each level as it lands. */
@@ -325,6 +332,16 @@ export function MarkdownTabBody(props: any) {
   const dirtyRef = useRef(false);
   const isDirty = editMode && editDraft !== content;
   dirtyRef.current = isDirty;
+
+  // The plugin starts every navigation, but the draft is here: hand it the
+  // question while this body is mounted. The closure reads `dirtyRef`, so it
+  // answers for the current draft rather than the one at mount time.
+  useEffect(() => {
+    api?.setDiscardGuard?.(() =>
+      !dirtyRef.current || window.confirm('有未保存的更改，确定放弃吗？'),
+    );
+    return () => api?.setDiscardGuard?.(null);
+  }, [api]);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
