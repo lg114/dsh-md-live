@@ -105,7 +105,24 @@ const tree = (dir) => WORKSPACE[dir] ?? { path: dir, entries: [] };
 // the absolute workspace root the Remote requires.
 const sessionsHook = (selector) => selector({ byId: { s1: { cwd: 'C:\\w' } } });
 
-const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [] };
+const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [], layout: [] };
+// Frames the fake Session stream hands to the plugin, in order.
+const followQueue = [];
+const followRequests = [];
+// The shell's "which Session is on screen" observable.
+let mountedValue;
+const mountedListeners = new Set();
+const mountedStore = {
+  getSnapshot: () => mountedValue,
+  subscribe: (listener) => {
+    mountedListeners.add(listener);
+    return () => mountedListeners.delete(listener);
+  },
+  set: (value) => {
+    mountedValue = value;
+    for (const listener of mountedListeners) listener();
+  },
+};
 dom.window.open = (url) => {
   captured.external.push(url);
   return null;
@@ -113,7 +130,12 @@ dom.window.open = (url) => {
 const fakeCtx = {
   effect(fn) { const d = fn(); return () => { if (typeof d === 'function') d(); }; },
   sidebarRightTabs: { register(def) { captured.tabType = def; return () => {}; } },
-  sidebarRight: { openTab(kind, opts) { captured.opens.push([kind, opts]); } },
+  sidebarRight: { openTab(kind, opts) { captured.opens.push([kind, opts]); }, mounted: mountedStore },
+  layout: {
+    openRightbar(track, fullscreen) {
+      captured.layout.push([track, fullscreen]);
+    },
+  },
   slots: {
     inject(name, cb) { cb(); return () => {}; },
     register(opts, Comp) {
@@ -124,13 +146,18 @@ const fakeCtx = {
   },
   remote: {
     $stream: ({ open }) => {
-      const src = open(new AbortController().signal);
+      // A real Remote stream owns a lifetime and cancels it on dispose; without
+      // that, an unmounted component's generator keeps draining the queue and
+      // silently eats frames meant for the live one.
+      const lifetime = new AbortController();
+      const src = open(lifetime.signal);
       return {
         [Symbol.asyncIterator]: async function* () {
           for await (const value of src) yield { value, accept() {} };
         },
         dispose() {
           disposed += 1;
+          lifetime.abort();
         },
       };
     },
@@ -139,6 +166,21 @@ const fakeCtx = {
       openWorkspacePath: async (request) => {
         captured.paths.push(request);
         return { ok: true, value: { opened: true } };
+      },
+      list: async () => ({ ok: true, value: { items: [{ sessionId: 's1', cwd: 'C:\\w' }] } }),
+      follow: (request, signal) => {
+        followRequests.push(request);
+        return (async function* () {
+          for (;;) {
+            if (signal?.aborted) return;
+            const next = followQueue.shift();
+            if (!next) {
+              await new Promise((r) => setTimeout(r, 10));
+              continue;
+            }
+            yield next;
+          }
+        })();
       },
     },
     workspaceFiles: {
@@ -445,7 +487,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   }
   dom.window.localStorage.removeItem('dsh-md-live.toc-collapsed.v1');
 
-  const settingsBtn = headerButtons.find((b) => b.getAttribute('title') === '阅读设置');
+  const settingsBtn = headerButtons.find((b) => b.getAttribute('title') === '面板设置');
   if (settingsBtn) {
     settingsBtn.click();
     await wait(40);
@@ -554,9 +596,86 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     JSON.stringify(copied), metaEl.querySelector('.md-live-code-copy')?.textContent);
   r13.unmount();
 
+  // The Agent writes a document: the plugin follows it, not the open tab, so a
+  // write can put a panel in front of the reader even when none was open.
+  // Every earlier mount still subscribed to the same fake Session stream would
+  // race for these frames, so they go first.
   r2.unmount();
   r3.unmount();
   r4.unmount();
   emptyRoot.unmount();
+
+  const openedPaths = () => captured.opens
+    .filter((entry) => entry[0] === 'md-live')
+    .map((entry) => entry[1]?.params?.path);
+
+  mountedStore.set('s1');
+  await wait(140);
+  console.log('50) follows the on-screen Session:',
+    followRequests.length > 0 && followRequests[0]?.address?.sessionId === 's1');
+
+  followQueue.push({
+    type: 'event',
+    event: { type: 'tool/call', data: { callId: 'c1', name: 'write', arguments: JSON.stringify({ file_path: 'docs/new.md', content: '# 新文档' }) } },
+  });
+  await wait(60);
+  console.log('51) a write call alone opens nothing yet:', !openedPaths().includes(ROOT + '/docs/new.md'));
+
+  followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c1' } } } } });
+  await wait(140);
+  console.log('52) the result opens the written file:', openedPaths().includes(ROOT + '/docs/new.md'));
+  console.log('53) the pane is revealed first:',
+    captured.layout.length > 0 && captured.layout[0][0] === false && captured.layout[0][1] === false);
+
+  followQueue.push({
+    type: 'event',
+    event: { type: 'tool/call', data: { callId: 'c2', name: 'str_replace_editor', arguments: JSON.stringify({ command: 'view', path: 'C:/w/README.md' }) } },
+  });
+  followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c2' } } } } });
+  await wait(120);
+  console.log('54) a read-only editor call opens nothing:', !openedPaths().includes(ROOT + '/README.md'));
+
+  followQueue.push({
+    type: 'event',
+    event: { type: 'tool/call', data: { callId: 'c3', name: 'write', arguments: JSON.stringify({ file_path: 'notes.txt', content: 'x' }) } },
+  });
+  followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c3' } } } } });
+  await wait(120);
+  console.log('55) a non-Markdown write opens nothing:', !openedPaths().includes(ROOT + '/notes.txt'));
+
+  // The checkbox is the only way out, so it has to reach the same switch.
+  const optEl = document.createElement('div');
+  document.body.appendChild(optEl);
+  const r14 = createRoot(optEl);
+  r14.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't14', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(160);
+  const followSettings = [...optEl.querySelectorAll('.md-live-actions button')]
+    .find((b) => b.getAttribute('title') === '面板设置');
+  if (followSettings) {
+    followSettings.click();
+    await wait(50);
+  }
+  const followBox = optEl.querySelector('.md-live-settings-check input');
+  if (followBox) {
+    followBox.click();
+    await wait(60);
+  }
+  console.log('56) the checkbox turns following off:',
+    Boolean(followBox) && dom.window.localStorage.getItem('dsh-md-live.follow-writes.v1') === 'false');
+
+  followQueue.push({
+    type: 'event',
+    event: { type: 'tool/call', data: { callId: 'c4', name: 'write', arguments: JSON.stringify({ file_path: 'docs/off.md' }) } },
+  });
+  followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c4' } } } } });
+  await wait(160);
+  console.log('57) a write after opting out opens nothing:', !openedPaths().includes(ROOT + '/docs/off.md'));
+  r14.unmount();
+  dom.window.localStorage.removeItem('dsh-md-live.follow-writes.v1');
+
+
   process.exit(0);
 })();

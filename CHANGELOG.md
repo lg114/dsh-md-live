@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-26
+
+The tab stops waiting to be opened and starts following the Agent.
+
+### Added
+
+- The panel follows the Agent's writes — and opens itself to do it. When a
+  `write`, `edit` or `str_replace_editor` call finishes on a `.md` inside the
+  workspace, the right Sidebar is revealed and the tab lands on that file. The
+  subscription lives in the plugin rather than in the tab body, fed by
+  `remote.session.follow` for whichever Session `sidebarRight.mounted` names, so
+  a write is followed whether or not a panel was open. The switch is armed by
+  `tool/call` and fired by the matching `tool/result`, so the file is read after
+  the write landed — opening on the call would show the previous contents and
+  make a working feature look broken. `str_replace_editor`'s `view` command is a
+  read and is ignored, as is any call naming a non-Markdown path.
+- A "follow the Agent's writes" checkbox in the panel settings, on by default
+  and remembered per browser. It is read at the moment of each write, so
+  flipping it takes effect without a reload.
+
+### Changed
+
+- Both Remote streams — the file watch and the Session follow — now share one
+  wrapper that unwraps `item.value` and acknowledges every frame. The two
+  call sites had been carrying the same twenty lines twice.
+- The header's settings button is "panel settings" rather than "reading
+  settings", because following the Agent is not a reading preference.
+- Placing a tab in a Session whose store was never adopted does nothing at all,
+  and a closed pane is exactly that case. So the pane is revealed first and the
+  tab is placed again a frame later, twice; repeating is safe because the type
+  is single-instance.
+- `verify:client` grew from 56 to 64 checks. The jsdom `$stream` double now owns
+  a lifetime and cancels it on `dispose()`; without that, an unmounted
+  component's generator kept draining the fake queue and eating the frames meant
+  for the live one — which is exactly how the first run of these tests failed.
+
 ## [0.5.0] - 2026-10-26
 
 This release was planned as "swap in the official `MarkdownText` renderer".
@@ -121,6 +157,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.6.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.6.0
 [0.5.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.5.0
 [0.4.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.4.0
 [0.3.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.3.0

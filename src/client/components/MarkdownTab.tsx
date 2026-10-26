@@ -13,6 +13,7 @@ import {
   type TOCItem,
 } from '../utils/markdown';
 import { TOC } from './TOC';
+import { FOLLOW_STORAGE_KEY } from '../utils/agent-writes';
 
 /** How far a scan may go. Only a safety net: the workspace is scanned whole. */
 export interface MdLiveScanBudget {
@@ -288,6 +289,10 @@ export function MarkdownTabBody(props: any) {
   );
   /** The heading the reader is at, so the outline can follow along. */
   const [activeId, setActiveId] = useState('');
+  /** Whether the tab switches to a document the Agent just wrote. */
+  const [followWrites, setFollowWrites] = useState<boolean>(
+    () => readStored<unknown>(FOLLOW_STORAGE_KEY) !== false,
+  );
   /** `null` until the Host has answered whether it can open paths. */
   const [canOpen, setCanOpen] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -690,8 +695,8 @@ export function MarkdownTabBody(props: any) {
             <button
               className="md-live-btn md-live-icon-btn"
               onClick={() => setSettingsOpen((open) => !open)}
-              title="阅读设置"
-              aria-label="阅读设置"
+              title="面板设置"
+              aria-label="面板设置"
               aria-expanded={settingsOpen}
             >
               Aa
@@ -706,7 +711,7 @@ export function MarkdownTabBody(props: any) {
               </button>
             ) : null}
             {settingsOpen ? (
-              <div className="md-live-settings" role="dialog" aria-label="阅读设置">
+              <div className="md-live-settings" role="dialog" aria-label="面板设置">
                 <label className="md-live-settings-row">
                   <span>字号</span>
                   <select
@@ -752,6 +757,18 @@ export function MarkdownTabBody(props: any) {
                     <option value="760">760px</option>
                     <option value="900">900px</option>
                   </select>
+                </label>
+                <label className="md-live-settings-row md-live-settings-check">
+                  <input
+                    type="checkbox"
+                    checked={followWrites}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setFollowWrites(next);
+                      writeStored(FOLLOW_STORAGE_KEY, next);
+                    }}
+                  />
+                  <span>跟随 Agent 写入</span>
                 </label>
                 <div className="md-live-settings-actions">
                   <button className="md-live-btn" onClick={() => updateReading(DEFAULT_READING)}>

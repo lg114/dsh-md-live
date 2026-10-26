@@ -7,6 +7,7 @@ import {
   type MdLiveScanOptions,
   type MdLiveTruncation,
 } from './components/MarkdownTab';
+import { isFollowingEnabled, markdownWriteTarget, resultCallId } from './utils/agent-writes';
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -56,6 +57,177 @@ function unwrapRemote<T>(result: any): T {
 function normalizeRoot(path: unknown): string {
   const raw = typeof path === 'string' ? path : '';
   return raw.replace(/\\/g, '/').replace(/^\.\/*/, '').replace(/\/+$/, '');
+}
+
+/**
+ * Unwrap one Remote stream into plain frames.
+ *
+ * Two rules make a Remote stream usable from a plugin: every item must be
+ * acknowledged with `accept()`, or the uplink window fills and the stream goes
+ * quiet without ever raising; and the frame itself travels under `item.value`,
+ * not as the item. A stream that ends on its own is reported through `ended`,
+ * so the caller's `for await` throws instead of finishing silently.
+ *
+ * @param remote - the Remote service holding `$stream`.
+ * @param name - the stream's name, which is what the Host's logs show.
+ * @param open - opens the underlying Remote stream for one lifetime.
+ * @param signal - the caller's cancellation.
+ * @param ended - the error raised when the stream ends by itself.
+ * @returns frames, already unwrapped and acknowledged.
+ */
+function streamFrames(
+  remote: any,
+  name: string,
+  open: (lifetime: AbortSignal) => any,
+  signal: AbortSignal,
+  ended: string,
+): AsyncIterable<any> {
+  if (typeof remote.$stream !== 'function') return open(signal);
+  const stream = remote.$stream({ name, open, ended: () => new Error(ended) });
+  return (async function* () {
+    const abort = () => stream.dispose();
+    signal.addEventListener('abort', abort, { once: true });
+    try {
+      for await (const item of stream) {
+        if (signal.aborted) return;
+        const frame = item && 'value' in item ? item.value : item;
+        if (item && typeof item.accept === 'function') item.accept();
+        yield frame;
+      }
+    } finally {
+      signal.removeEventListener('abort', abort);
+      await stream.dispose();
+    }
+  })();
+}
+
+/**
+ * Follow the Agent's writes for the Session currently on screen.
+ *
+ * This lives here rather than in the tab body on purpose. A closed panel has no
+ * component to subscribe from, and "the Agent wrote a file, show it" is only
+ * useful if it also works when nothing is open — which is exactly when the
+ * reader most wants to be told. `sidebarRight.mounted` is the client's own
+ * answer to "which Session is the user looking at".
+ *
+ * @param ctx - client root context carrying the sidebar, layout, and Remotes.
+ * @returns a disposer that closes the stream and cancels any pending placement.
+ */
+function startFollowing(ctx: any): () => void {
+  const mounted = ctx.sidebarRight?.mounted;
+  if (!mounted || typeof mounted.getSnapshot !== 'function') return () => {};
+
+  const cwdCache = new Map<string, string>();
+  const timers = new Set<any>();
+  let active: { sessionId: string; stop: () => void } | null = null;
+  let disposed = false;
+
+  /** The Session's workspace root, which relative tool paths resolve against. */
+  const cwdOf = async (sessionId: string): Promise<string> => {
+    const cached = cwdCache.get(sessionId);
+    if (cached !== undefined) return cached;
+    try {
+      const list = unwrapRemote<any>(await ctx.remote.session.list({}));
+      for (const item of Array.isArray(list?.items) ? list.items : []) {
+        if (item?.sessionId === sessionId && typeof item.cwd === 'string') {
+          cwdCache.set(sessionId, item.cwd);
+          return item.cwd;
+        }
+      }
+    } catch {
+      /* a missing cwd costs only relative paths, never the stream */
+    }
+    return '';
+  };
+
+  /**
+   * Put one document in front of the reader.
+   *
+   * Placing a tab in a Session whose store was never adopted does nothing at
+   * all, and a closed pane is exactly that case. So the pane is revealed first
+   * and the tab is placed again once it has had a frame or two to adopt the
+   * Session. Repeating the call is safe: the type is single-instance, so the
+   * later calls navigate the tab the first one created.
+   */
+  const show = (path: string) => {
+    const place = () => {
+      if (disposed) return;
+      try {
+        ctx.sidebarRight.openTab(KIND, { params: { path } });
+      } catch (err) {
+        console.error('[dsh-md-live] follow: openTab failed', err);
+      }
+    };
+    try {
+      ctx.layout?.openRightbar?.(false, false);
+    } catch {
+      /* an older shell without the layout action: openTab is all there is */
+    }
+    place();
+    for (const delay of [120, 400]) {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        place();
+      }, delay);
+      timers.add(timer);
+    }
+  };
+
+  const follow = async (sessionId: string, signal: AbortSignal) => {
+    const cwd = await cwdOf(sessionId);
+    if (signal.aborted) return;
+    const pending = new Map<string, string>();
+    try {
+      for await (const frame of streamFrames(
+        ctx.remote,
+        `md-live follow ${sessionId}`,
+        (lifetime: AbortSignal) =>
+          ctx.remote.session.follow({ address: { kind: 'session', sessionId } }, lifetime),
+        signal,
+        `Session follow ended: ${sessionId}`,
+      )) {
+        if (signal.aborted) return;
+        if (frame?.type !== 'event') continue;
+        const event = frame.event;
+        if (event?.type === 'tool/call') {
+          const write = markdownWriteTarget(event.data, cwd);
+          if (write) pending.set(write.callId, write.path);
+        } else if (event?.type === 'tool/result') {
+          const callId = resultCallId(event.data);
+          const target = callId ? pending.get(callId) : undefined;
+          if (!target) continue;
+          pending.delete(callId);
+          if (isFollowingEnabled()) show(target);
+        }
+      }
+    } catch {
+      /* following is a convenience; a refused stream must not break the shell */
+    }
+  };
+
+  const sync = () => {
+    if (disposed) return;
+    const sessionId = mounted.getSnapshot();
+    if (sessionId === active?.sessionId) return;
+    active?.stop();
+    active = null;
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const ac = new AbortController();
+    active = { sessionId, stop: () => ac.abort() };
+    void follow(sessionId, ac.signal);
+  };
+
+  const unsubscribe = typeof mounted.subscribe === 'function' ? mounted.subscribe(sync) : null;
+  sync();
+
+  return () => {
+    disposed = true;
+    for (const timer of timers) clearTimeout(timer);
+    timers.clear();
+    unsubscribe?.();
+    active?.stop();
+    active = null;
+  };
 }
 
 export const inject = [
@@ -239,34 +411,14 @@ export function apply(ctx: any) {
         return false;
       }
     },
-    watch: (sessionId: string, path: string, signal: AbortSignal) => {
-      // `changes` is a Remote stream: items must be acknowledged with accept(),
-      // or the uplink window fills and the watch goes quiet.
-      const remote = ctx.remote;
-      if (typeof remote.$stream !== 'function') {
-        return remote.workspaceFiles.changes(sessionId, path, signal);
-      }
-      const stream = remote.$stream({
-        name: `md-live ${path}`,
-        open: (lifetime: AbortSignal) => remote.workspaceFiles.changes(sessionId, path, lifetime),
-        ended: () => new Error(`Markdown watch ended: ${path}`),
-      });
-      return (async function* () {
-        const abort = () => stream.dispose();
-        signal.addEventListener('abort', abort, { once: true });
-        try {
-          for await (const item of stream) {
-            if (signal.aborted) return;
-            const frame = item && 'value' in item ? item.value : item;
-            if (item && typeof item.accept === 'function') item.accept();
-            yield frame;
-          }
-        } finally {
-          signal.removeEventListener('abort', abort);
-          await stream.dispose();
-        }
-      })();
-    },
+    watch: (sessionId: string, path: string, signal: AbortSignal) =>
+      streamFrames(
+        ctx.remote,
+        `md-live file ${path}`,
+        (lifetime: AbortSignal) => ctx.remote.workspaceFiles.changes(sessionId, path, lifetime),
+        signal,
+        `Markdown watch ended: ${path}`,
+      ),
   };
 
   // Stage one: what the type is. A guide entry is what makes it reachable from
@@ -310,6 +462,10 @@ export function apply(ctx: any) {
       ),
     'md-live: tab title',
   );
+
+  // Following is a plugin-level subscription, not a tab-level one: the point is
+  // that a write opens the panel even when no panel is open to hear about it.
+  ctx.effect(() => startFollowing(ctx), 'md-live: follow agent writes');
 
   console.log('[dsh-md-live] client ready: tab type "%s" registered', KIND);
 }

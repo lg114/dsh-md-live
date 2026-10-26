@@ -12,6 +12,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Whole-workspace scan** — walks the entire tree from the Session's workspace root, eight listings in flight per level, drawing results level by level: the first level shows up while the rest is still being walked.
 - **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
 - **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
+- **Follows the Agent, even with the panel closed** — when the Agent finishes writing a `.md` inside the workspace, the panel opens on that file. The subscription is plugin-level and fed by `remote.session.follow` for whichever Session is on screen, so it works whether or not a tab was already open. The switch waits for `tool/result` rather than `tool/call`, so the file is read after the write landed instead of before it. One checkbox in the panel settings turns it off.
 - **The path is visible** — the header shows `directory/filename` relative to the workspace, with the absolute path in the tooltip. In a narrow panel the directory gives way first; the filename never truncates.
 - **Images beside the document** — a relative `![](...)` path is resolved against the file's own directory and served by the Host's file endpoint, so a screenshot sitting next to the `.md` actually shows up.
 - **Links do what they look like** — a link to another `.md` opens it in this tab, `#anchor` scrolls inside the document, and an `https://` link goes to the browser instead of navigating the app away.
@@ -57,7 +58,8 @@ Client (everything happens here)
 ├── body/title      keyed slots, key = id
 ├── file list       remote.workspaceFiles.list   BFS by level + concurrency + progressive
 ├── file content    remote.workspaceFiles.readBytes → TextDecoder
-└── live updates    remote.workspaceFiles.changes → $stream + accept()
+├── live updates    remote.workspaceFiles.changes → $stream + accept()
+└── following       remote.session.follow → tool/result → openRightbar + openTab  (plugin-level)
 
 Host (lib/index.js)
 └── an empty apply(): it registers the package, nothing else
@@ -68,7 +70,7 @@ Six constraints worth knowing, each learned the hard way:
 1. **`ctx.remote.*` returns a Result envelope**, not a bare value: `{ ok: true, value } | { ok: false, error }`. Reading fields off it yields `undefined` *without throwing* — which is exactly how an empty file list looks like an empty workspace.
 2. **`list` / `readBytes` reject an empty path** with `path is required`. The scan must start from the Session's absolute cwd (the slot's standard prop `useSessions` → `byId[sessionId].cwd`).
 3. **`changes` is a Remote stream**: wrap it in `remote.$stream({ name, open, ended })` and `accept()` every frame, or the uplink window fills and live updates stop silently.
-4. **There is no Host → Client event bridge.** `ctx.emit` on the Host never reaches the browser. What a Client *can* observe is `remote.session.follow` — a Remote stream carrying the session's own events, `tool/call` among them — but this plugin does not subscribe to it yet, and everything it needs is a read it can make itself, which is why the Host half is empty.
+4. **There is no Host → Client event bridge — but there is a Session stream.** `ctx.emit` on the Host never reaches the browser. What a Client *can* observe is `remote.session.follow`: a Remote stream carrying the Session's own events, `tool/call` and `tool/result` among them. That stream is the only reason "follow what the Agent writes" works at all, and it is why the Host half can stay empty.
 5. **A client bundle must be `window.__ModuleLoader__.load({ id, factory })`**: executing the script only registers a factory, and the loader supplies `require` at materialization. Drop that wrapper and the bundle's `require("react")` runs at script scope, failing with `ReferenceError`.
 6. **The official `MarkdownText` primitive is deliberately not reused.** It is in the browser module table and would save about 480 KB of bundle, but it renders from an mdast tree that emits raw HTML verbatim with no sanitiser, gives headings no `id`, and does no syntax highlighting — the three things this tab has to get right on arbitrary files from a workspace. Its KaTeX support and code-block toolbar are real; the toolbar was rebuilt here on top of the existing renderer instead, and KaTeX is still missing.
 
@@ -77,26 +79,27 @@ Six constraints worth knowing, each learned the hard way:
 ```bash
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
-npm run verify:client  # mount the built bundle in jsdom and run 56 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 64 end-to-end checks
 npm run clean
 ```
 
-`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar and front matter. Run it after changing client code — it is far faster than clicking through the browser.
+`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar, front matter, and following the Agent's writes. Run it after changing client code — it is far faster than clicking through the browser.
 
 ## Known limitations
 
 - **Read-only**: `workspaceFiles` has no write API, so there is no editor and no saving.
-- **No auto-open**: with no Host → Client push channel, "open the panel when the Agent writes a `.md`" needs a custom Remote or a session-stream subscription. Not implemented.
+- **Following reads tool arguments, not the filesystem**: a `.md` the Agent rewrites through `bash` (`cat > x.md`, a heredoc) is not followed, because that call carries no path. `write`, `edit` and `str_replace_editor` are.
+- **Following only watches the Session on screen**: a write in a background Session opens nothing, because that is not the conversation the reader is in.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
 - **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
-- **Bundle size**: about 490 KB (marked + DOMPurify + 27 highlight.js language definitions).
+- **Bundle size**: about 497 KB (marked + DOMPurify + 27 highlight.js language definitions).
 
 ## Roadmap
 
 - [ ] Lazy-load highlight.js languages to shrink the first payload further
 - [ ] Mermaid / KaTeX
 - [ ] Edit and save (needs a write API)
-- [ ] Auto-open when the Agent writes (needs a real Host → Client channel)
+- [ ] A `preview_md` Agent tool, so the Agent can show a file deliberately rather than only after writing one (needs a Host-side tool registration; the client half already listens)
 
 ## Compatibility
 

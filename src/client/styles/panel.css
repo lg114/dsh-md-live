@@ -175,6 +175,21 @@
   padding-top: 2px;
 }
 
+/* The one setting that is not about reading: following the Agent's writes. */
+.md-live-settings-check {
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+  cursor: pointer;
+}
+
+.md-live-settings-check input {
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary, #4d6bfe);
+}
+
 /* Content area */
 
 .md-live-content {

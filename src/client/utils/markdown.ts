@@ -264,20 +264,32 @@ function normalizeSegments(path: string): string {
 }
 
 /**
- * Resolve one authored destination against the document that contains it.
+ * The directory part of a path, `/`-separated, or `''` for a bare name.
+ *
+ * @param path - any path.
+ * @returns everything before the last separator.
+ */
+export function directoryOf(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  const cut = normalized.lastIndexOf('/');
+  return cut === -1 ? '' : normalized.slice(0, cut);
+}
+
+/**
+ * Resolve one authored destination against a base directory.
  *
  * A Markdown file refers to its neighbours relatively (`./img/a.png`,
  * `../guide.md`), but this tab opens one file at a time with no base URL of its
  * own, so the browser would resolve those against the page and 404. The
- * document's own absolute path is the base that makes them mean what the author
- * meant.
+ * document's own directory — or, for a tool call, the Session's workspace — is
+ * the base that makes them mean what the author meant.
  *
- * @param docPath - the containing document, as an absolute path.
- * @param destination - the raw `href` or `src` value.
+ * @param baseDir - the directory a relative destination is read against.
+ * @param destination - the raw `href`, `src`, or tool argument.
  * @returns an absolute path, or `null` when the destination is not a workspace
  *   path (a URL scheme, a protocol-relative URL, or empty).
  */
-export function resolveDocPath(docPath: string, destination: string): string | null {
+export function resolvePath(baseDir: string, destination: string): string | null {
   let value = destination.trim();
   if (!value) return null;
   const cut = value.search(/[?#]/);
@@ -293,8 +305,19 @@ export function resolveDocPath(docPath: string, destination: string): string | n
   const normalized = value.replace(/\\/g, '/');
   if (normalized.startsWith('//')) return null;
   const absolute = normalized.startsWith('/') || /^[a-z]:\//i.test(normalized);
-  const base = absolute ? '' : docPath.replace(/\\/g, '/').replace(/[^/]*$/, '');
+  const base = absolute ? '' : `${baseDir.replace(/\\/g, '/').replace(/\/+$/, '')}/`;
   return normalizeSegments(`${base}${normalized}`);
+}
+
+/**
+ * Resolve one destination against the document that contains it.
+ *
+ * @param docPath - the containing document, as an absolute path.
+ * @param destination - the raw `href` or `src` value.
+ * @returns an absolute path, or `null` for a destination that is not one.
+ */
+export function resolveDocPath(docPath: string, destination: string): string | null {
+  return resolvePath(directoryOf(docPath), destination);
 }
 
 /**

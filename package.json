@@ -1,6 +1,6 @@
 {
   "name": "dsh-md-live",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "DSH native right-tab Markdown preview: lists the workspace, live-refreshes on file change, follows the app theme tokens",
   "type": "module",
   "main": "lib/index.js",
