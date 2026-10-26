@@ -23,6 +23,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Reading settings** — body size, leading and measure, remembered per browser. Every default is "follow the app", so the panel still obeys the app's own Markdown tokens until you say otherwise.
 - **Safe rendering** — sanitised by DOMPurify (HTML profile): scripts, iframes, event attributes and `javascript:` URLs are stripped.
 - **Syntax highlighting** — highlight.js with 27 languages registered on demand.
+- **Math** — `$inline$` and `$$display$$` go through KaTeX. The output is MathML rather than KaTeX's own HTML: the HTML rendering needs KaTeX's web fonts, several hundred kilobytes the plugin has no way to serve, so the browser draws the maths itself.
 - **Code blocks you can act on** — every block shows its language and a copy control on hover. The copy drops the trailing newline, so a pasted command does not run itself.
 - **Front matter stays metadata** — a leading `---` block is lifted out of the prose and shown in a collapsed box, instead of turning into a stray horizontal rule and a `title: …` paragraph.
 - **Follows the app's settings** — colours, font sizes and font families all read DSH's `--dsw-*` design tokens, so the light/dark appearance, the font-size stepper and any registered third-party theme carry over.
@@ -81,12 +82,12 @@ Six constraints worth knowing, each learned the hard way:
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
 npm run verify         # both halves
-npm run verify:client  # mount the built bundle in jsdom and run 65 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 69 end-to-end checks
 npm run verify:host    # run the built Host half against a fake context: 9 checks
 npm run clean
 ```
 
-`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar, front matter, and following the Agent's writes. Run it after changing client code — it is far faster than clicking through the browser.
+`verify:client` simulates DSH's module loader (register → materialize → `apply`), then mounts the tab body in jsdom. It covers registration and slot keys, unwrapping the Remote envelope, directory recursion, filter rules and their persistence, progressive rendering, live refresh, unmount cleanup, TOC anchors, sanitisation, highlighting, image and link resolution, the Host opener calls, search, recents, outline folding, reading settings, the code toolbar, front matter, following the Agent's writes, and math. Run it after changing client code — it is far faster than clicking through the browser.
 
 `verify:host` imports the built Host half and calls `apply` with a fake cordis context: what it injects, the tool's schema, the arguments it refuses, and that a registry which throws costs the tool rather than the plugin. It cannot exercise a real Agent turn — that still needs the browser.
 
@@ -97,13 +98,14 @@ npm run clean
 - **Following only watches the Session on screen**: a write in a background Session opens nothing, because that is not the conversation the reader is in.
 - **`preview_md` does not verify the path**: the tool carries the request, and the panel resolves and reads it, so a wrong path surfaces in the panel rather than in the tool result. Resolving in both places would be two answers to one question, and the panel's is the one that gets used.
 - **Filter rules match directory names only**: any depth, case-insensitive. No path globs such as `docs/archive`.
-- **No Mermaid or KaTeX**: `$$...$$` and ```mermaid render as plain text.
-- **Bundle size**: about 497 KB (marked + DOMPurify + 27 highlight.js language definitions).
+- **No Mermaid**: ```mermaid renders as plain text.
+- **Math is MathML, not KaTeX's HTML**: the browser's own renderer draws it, so no fonts or stylesheet are needed, but a few constructs look plainer than KaTeX's typesetting would.
+- **Bundle size**: about 877 KB (marked + DOMPurify + KaTeX + 27 highlight.js language definitions). KaTeX alone is roughly 380 KB of that.
 
 ## Roadmap
 
 - [ ] Lazy-load highlight.js languages to shrink the first payload further
-- [ ] Mermaid / KaTeX
+- [ ] Mermaid
 - [ ] Edit and save (needs a write API)
 
 ## Compatibility
@@ -111,6 +113,7 @@ npm run clean
 - DSH >= 0.2.0 (requires `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`)
 - `remote.session.openWorkspacePath` / `canOpenWorkspacePath` for the "open elsewhere" actions; the buttons hide themselves when the Host has no desktop to open them on
 - `@deepseek-ai/dsh-tools` (pinned to the Host's own `0.2.1-rc.2`) for `preview_md`; the tool is skipped with a warning when the package cannot be loaded
+- `katex` 0.16 for math; its minified build is imported directly, because the client bundle is deliberately not minified and the unminified entry is twice the size
 - Node.js >= 18 (build time)
 - React >= 18 (supplied by DSH's browser module table, not bundled)
 

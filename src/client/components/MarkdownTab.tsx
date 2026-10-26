@@ -4,6 +4,7 @@ import {
   extractTOC,
   isMarkdownPath,
   renderMarkdown,
+  renderMathWithin,
   resolveDocPath,
   resolveImageUrls,
   sanitizeHtml,
@@ -448,11 +449,12 @@ export function MarkdownTabBody(props: any) {
     [doc.body, toc, path, base],
   );
 
-  // Highlighting and the code toolbar both run on the rendered DOM, after the
-  // HTML lands, and are rebuilt from scratch on every re-render.
+  // Highlighting, math and the code toolbar all run on the rendered DOM, after
+  // the HTML lands, and are rebuilt from scratch on every re-render.
   useEffect(() => {
     if (status !== 'ready') return;
     highlightWithin(previewRef.current);
+    renderMathWithin(previewRef.current);
     decorateCodeBlocks(previewRef.current);
   }, [html, status]);
 

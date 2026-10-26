@@ -23,6 +23,7 @@ DSH Web 右侧栏的原生 Markdown 预览标签页。
 - **阅读设置** —— 正文字号、行距、行宽，按浏览器记住。所有默认值都是「跟随设置」，也就是说在你明确改之前，排版仍然由 DSH 自己的 Markdown token 决定。
 - **安全渲染** —— DOMPurify（HTML profile）净化，脚本、iframe、事件属性、`javascript:` 链接都会被剥掉。
 - **代码高亮** —— highlight.js，按需注册 27 种常用语言。
+- **数学公式** —— `$行内$` 和 `$$块级$$` 走 KaTeX。输出用 MathML 而不是 KaTeX 自己的 HTML：后者依赖 KaTeX 的 web 字体，那几百 KB 插件没办法提供，所以交给浏览器自己排版。
 - **代码块可操作** —— 每块代码悬停时显示语言名和复制按钮；复制会去掉结尾换行，粘进终端不会自己执行。
 - **frontmatter 不混进正文** —— 开头的 `---` 块被单独拎出来折叠显示，而不是变成一条多余的分隔线加一段 `title: …` 正文。
 - **跟随设置** —— 颜色、字号、字体全部读 DSH 的 `--dsw-*` 设计 token，明暗主题、字号步进器、第三方主题都会跟着变。
@@ -81,12 +82,12 @@ Host（lib/index.js）
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # 只构建 client
 npm run verify         # 两端都跑
-npm run verify:client  # 用 jsdom 挂载真实产物跑 65 项端到端检查
+npm run verify:client  # 用 jsdom 挂载真实产物跑 69 项端到端检查
 npm run verify:host    # 用假 ctx 跑 Host 半身：9 项检查
 npm run clean
 ```
 
-`verify:client` 会模拟 DSH 的模块加载器（注册 → 物化 → apply），再在 jsdom 里挂载 tab body，覆盖：注册与 slot key、Remote 信封解包、目录递归、过滤规则与持久化、渐进渲染、热更新、卸载清理、TOC 锚点、净化、代码高亮、图片与链接解析、外部打开调用、搜索、最近打开、目录折叠、阅读设置、代码工具栏、frontmatter、跟随 Agent 写入。改完 client 代码先跑它，比在浏览器里点快得多。
+`verify:client` 会模拟 DSH 的模块加载器（注册 → 物化 → apply），再在 jsdom 里挂载 tab body，覆盖：注册与 slot key、Remote 信封解包、目录递归、过滤规则与持久化、渐进渲染、热更新、卸载清理、TOC 锚点、净化、代码高亮、图片与链接解析、外部打开调用、搜索、最近打开、目录折叠、阅读设置、代码工具栏、frontmatter、跟随 Agent 写入、数学公式。改完 client 代码先跑它，比在浏览器里点快得多。
 
 `verify:host` 直接 import 构建好的 Host 半身、用一个假 cordis ctx 调 `apply`：注入了什么、工具的 schema、会拒绝哪些参数，以及「注册抛错时只损失工具、不损失插件」。它跑不了真实的 Agent 轮次——那仍然要在浏览器里点。
 
@@ -97,13 +98,14 @@ npm run clean
 - **只跟随在屏的会话**：后台会话里的写入不会弹面板，因为那不是读者正在进行的对话。
 - **`preview_md` 不校验路径**：工具只负责把请求带过去，解析和读取由面板做，所以路径错了会在面板里报出来而不是在工具结果里。两边都解析等于对同一个问题给两个答案，而实际生效的是面板那个。
 - **过滤规则只匹配目录名**：任意层级、忽略大小写，不支持 `docs/archive` 这类路径通配。
-- **没有 Mermaid / KaTeX**：`$$...$$` 和 ```mermaid 会当普通文本渲染。
-- **体积**：client bundle 约 497 KB（marked + DOMPurify + 27 种语言的高亮定义）。
+- **没有 Mermaid**：```mermaid 会当普通文本渲染。
+- **公式是 MathML，不是 KaTeX 的 HTML**：交给浏览器自带的排版引擎，所以不需要字体和样式表，但个别结构的观感比 KaTeX 的排版朴素一些。
+- **体积**：client bundle 约 877 KB（marked + DOMPurify + KaTeX + 27 种语言的高亮定义），其中 KaTeX 占约 380 KB。
 
 ## 路线图
 
 - [ ] 代码高亮语言按需懒加载，进一步减小首包
-- [ ] Mermaid / KaTeX
+- [ ] Mermaid
 - [ ] 编辑并保存（需要写入 API）
 
 ## 兼容性
@@ -111,6 +113,7 @@ npm run clean
 - DSH >= 0.2.0（依赖 `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`）
 - 「交给别处打开」依赖 `remote.session.openWorkspacePath` / `canOpenWorkspacePath`；Host 没有桌面可打开时按钮会自动隐藏
 - `preview_md` 依赖 `@deepseek-ai/dsh-tools`（锁定到 Host 自带的 `0.2.1-rc.2`）；加载不到时只警告并跳过这个工具，不影响插件
+- 数学公式依赖 `katex` 0.16，直接引它的压缩版——客户端产物故意不压缩，引未压缩入口体积会翻倍
 - Node.js >= 18（构建期）
 - React >= 18（由 DSH 的浏览器模块表提供，不打包进产物）
 

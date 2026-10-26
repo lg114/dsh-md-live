@@ -524,6 +524,21 @@
   border-radius: var(--dsw-radius-md, 8px);
 }
 
+/* Math: MathML output, so the browser draws it with no fonts to ship. */
+
+.md-live-math[data-display="1"] {
+  display: block;
+  margin: 14px 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-live-math math {
+  font-size: 1.05em;
+  color: inherit;
+}
+
 .markdown-body hr {
   height: 0;
   margin: 20px 0;

@@ -686,6 +686,43 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   r14.unmount();
   dom.window.localStorage.removeItem('dsh-md-live.follow-writes.v1');
 
+  // Math: KaTeX runs on the DOM after sanitising, so code stays literal.
+  fileText = [
+    '# 公式',
+    '',
+    '行内：$E = mc^2$',
+    '',
+    '$$',
+    '\\int_0^1 x^2 dx',
+    '$$',
+    '',
+    '```md',
+    '行内公式 $a+b$ 在代码块里不该被转换',
+    '```',
+    '',
+    '坏公式：$\\frac{1}{$',
+  ].join('\n');
+  const mathEl = document.createElement('div');
+  document.body.appendChild(mathEl);
+  const r15 = createRoot(mathEl);
+  r15.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't15', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(200);
+  const inlineMath = mathEl.querySelector('.md-live-math:not([data-display])');
+  console.log('59) inline math renders to MathML:',
+    Boolean(inlineMath) && Boolean(inlineMath.querySelector('math')));
+  const blockMath = mathEl.querySelector('.md-live-math[data-display="1"]');
+  console.log('60) block math renders as a display block:',
+    Boolean(blockMath) && Boolean(blockMath.querySelector('math[display="block"]')));
+  const codeNode = mathEl.querySelector('.markdown-body pre code');
+  console.log('61) math inside a code fence stays literal:',
+    Boolean(codeNode) && codeNode.textContent.includes('$a+b$') && !codeNode.querySelector('math'));
+  console.log('62) an unparseable expression does not throw and stays visible:',
+    mathEl.querySelectorAll('.md-live-math[data-rendered="1"]').length === 3);
+  r15.unmount();
+
 
   process.exit(0);
 })();

@@ -1,6 +1,13 @@
 import { marked } from 'marked';
 import DOMPurifyImport from 'dompurify';
 import hljs from 'highlight.js/lib/core';
+// KaTeX ships an unminified bundle (620 KB) and a minified one (275 KB). The
+// client build does not minify — the artifact stays readable on purpose — so the
+// already-minified file is imported directly instead of being expanded and
+// re-emitted. `src/client/**` is outside the `tsc` project, so the missing types
+// for this deep path never reach the type checker.
+// @ts-expect-error - the package ships no types for its minified entry
+import katex from 'katex/dist/katex.min.js';
 
 // Only the languages a Markdown document realistically carries. The full
 // highlight.js bundle is ~1.6 MB; this keeps the plugin bundle an order of
@@ -92,6 +99,109 @@ marked.setOptions({
   gfm: true,
   breaks: false,
 });
+
+/** Escape a string for use inside a double-quoted HTML attribute. */
+function escapeAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * A math expression, left as a placeholder for the DOM pass to fill in.
+ *
+ * Rendering KaTeX here would mean shipping its markup through DOMPurify, which
+ * has no reason to trust it and every reason to rewrite it. A placeholder costs
+ * one attribute and keeps the sanitiser's job unchanged; `renderMathWithin`
+ * then draws into the element that survived.
+ *
+ * @param tex - the expression, as authored.
+ * @param display - whether it stood on its own line.
+ * @returns the placeholder element.
+ */
+function mathPlaceholder(tex: string, display: boolean): string {
+  const displayAttribute = display ? ' data-display="1"' : '';
+  return `<span class="md-live-math"${displayAttribute} data-tex="${escapeAttribute(tex)}"></span>`;
+}
+
+// `$…$` and `$$…$$`. Extensions rather than a text pass, so an expression
+// inside a code span or fence is left alone: those are tokenised first.
+marked.use({
+  extensions: [
+    {
+      name: 'inlineMath',
+      level: 'inline',
+      start(source: string) {
+        return source.indexOf('$');
+      },
+      tokenizer(source: string) {
+        const match = /^\$(?!\$)((?:\\.|[^\\$\n])+?)\$(?!\d)/.exec(source);
+        if (!match) return undefined;
+        // `$5 and $10` is money, not math: real inline math hugs its delimiters.
+        if (/^\s|\s$/.test(match[1])) return undefined;
+        return { type: 'inlineMath', raw: match[0], text: match[1] };
+      },
+      renderer(token: any) {
+        return mathPlaceholder(token.text, false);
+      },
+    },
+    {
+      name: 'blockMath',
+      level: 'block',
+      start(source: string) {
+        return source.indexOf('$$');
+      },
+      tokenizer(source: string) {
+        const match = /^\$\$\n?([\s\S]+?)\n?\$\$[ \t]*(?:\n+|$)/.exec(source);
+        if (!match) return undefined;
+        return { type: 'blockMath', raw: match[0], text: match[1] };
+      },
+      renderer(token: any) {
+        return mathPlaceholder(token.text, true);
+      },
+    },
+  ],
+});
+
+/**
+ * Draw every math placeholder inside a rendered document.
+ *
+ * Runs on the live DOM, after sanitising, for the same reason highlighting
+ * does: the markup is generated here rather than trusted from the file, so it
+ * never passes through the sanitiser at all.
+ *
+ * Output is MathML rather than KaTeX's HTML. The HTML rendering depends on
+ * KaTeX's own web fonts — without them the metrics are wrong and glyphs
+ * overlap — and those fonts are several hundred kilobytes that the plugin has
+ * no way to serve. MathML is drawn by the browser itself, so it needs neither
+ * the fonts nor the stylesheet.
+ *
+ * @param root - the container holding the rendered Markdown.
+ */
+export function renderMathWithin(root: HTMLElement | null): void {
+  if (!root) return;
+  for (const node of Array.from(root.querySelectorAll('.md-live-math'))) {
+    const element = node as HTMLElement;
+    if (element.dataset.rendered === '1') continue;
+    element.dataset.rendered = '1';
+    const tex = element.getAttribute('data-tex') ?? '';
+    const displayMode = element.getAttribute('data-display') === '1';
+    try {
+      katex.render(tex, element, {
+        displayMode,
+        output: 'mathml',
+        throwOnError: false,
+        strict: false,
+      });
+    } catch {
+      // An expression KaTeX cannot parse stays visible as source rather than
+      // disappearing from the document.
+      element.textContent = tex;
+    }
+  }
+}
 
 export interface TOCItem {
   level: number;

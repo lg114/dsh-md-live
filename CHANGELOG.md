@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-26
+
+Math, at a price the next reader should know about.
+
+### Added
+
+- `$inline$` and `$$display$$` render through KaTeX. They are marked
+  extensions rather than a text pass, so an expression inside a code span or a
+  fence is left alone — those are tokenised first. The extensions emit a
+  placeholder carrying the TeX, and the expression is drawn on the live DOM
+  after sanitising: the sanitiser's job stays exactly what it was, and KaTeX's
+  markup never passes through the HTML string at all.
+- `verify:client` grew from 65 to 69 checks: inline math, display math, math
+  inside a fence staying literal, and an unparseable expression neither throwing
+  nor disappearing.
+
+### Changed
+
+- Output is MathML rather than KaTeX's HTML. The HTML rendering depends on
+  KaTeX's own web fonts — several hundred kilobytes the plugin has no way to
+  serve — and without them the metrics are wrong and glyphs collide. The browser
+  draws MathML itself, so it needs neither the fonts nor the stylesheet.
+- KaTeX's minified build is imported directly. The client bundle is deliberately
+  not minified, so importing the package entry expanded to 620 KB; the minified
+  file costs about 380 KB instead.
+
+### Notes
+
+- The bundle is now about 877 KB, most of the growth being KaTeX. That is what
+  math costs without code splitting, and this module format — one file per id,
+  loaded by `__ModuleLoader__` — has no way to split.
+
 ## [0.7.0] - 2026-10-26
 
 The Agent can now ask for a document instead of only producing one.
@@ -185,6 +217,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.8.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.8.0
 [0.7.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.7.0
 [0.6.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.6.0
 [0.5.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.5.0
