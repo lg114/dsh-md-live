@@ -68,6 +68,15 @@ const TOC_STORAGE_KEY = 'dsh-md-live.toc-collapsed.v1';
 /** How many recently opened documents the picker keeps. */
 const MAX_RECENT = 8;
 
+/** Structured write outcome returned by the Host. */
+export type WriteResult =
+  | { status: 'saved'; version: string; bytes: number }
+  | { status: 'stale'; currentVersion: string }
+  | { status: 'denied'; reason: string }
+  | { status: 'missing' }
+  | { status: 'bad-request'; reason: string }
+  | { status: 'error'; message: string };
+
 /** Read one JSON value; a missing or broken entry yields `undefined`. */
 function readStored<T>(key: string): T | undefined {
   try {
@@ -160,8 +169,8 @@ function loadReading(): ReadingSettings {
 export interface MdLiveApi {
   /** Re-open this tab with another file (empty string goes back to the picker). */
   open: (path: string) => void;
-  /** Read a workspace file as UTF-8 text. */
-  readText: (sessionId: string, path: string, signal: AbortSignal) => Promise<string>;
+  /** Read a workspace file as UTF-8 text, returning the content and its version token. */
+  readText: (sessionId: string, path: string, signal: AbortSignal) => Promise<{ content: string; version: string }>;
   /** Scan the whole workspace tree for Markdown files, reporting each level as it lands. */
   listMarkdown: (
     sessionId: string,
@@ -178,6 +187,15 @@ export interface MdLiveApi {
   openPath: (path: string, action?: 'reveal') => Promise<void>;
   /** Whether the Host can open workspace paths at all (it cannot when remote). */
   canOpenPath: () => Promise<boolean>;
+  /**
+   * Write UTF-8 text to one workspace file. Returns a structured status.
+   * Pass an empty `version` to skip the concurrency check (force overwrite).
+   *
+   * The session id rides along because the Host fences the write with that
+   * Session's sandbox policy; without it the backend would fall back to the
+   * deployment default root (the directory `dsh web` was launched from).
+   */
+  writeText?: (sessionId: string, path: string, content: string, version: string) => Promise<WriteResult>;
 }
 
 const basename = (p?: string): string => (p ? p.split(/[\\/]/).pop() || p : '');
@@ -273,6 +291,7 @@ export function MarkdownTabBody(props: any) {
   const root = useMemo(() => (cwd ? String(cwd).replace(/\\/g, '/').replace(/\/+$/, '') : ''), [cwd]);
 
   const [content, setContent] = useState('');
+  const [version, setVersion] = useState('');
   const [status, setStatus] = useState<Status>(path ? 'loading' : 'idle');
   const [error, setError] = useState('');
   /** Whether the open file is being watched, so the header can stay silent. */
@@ -296,8 +315,16 @@ export function MarkdownTabBody(props: any) {
   );
   /** `null` until the Host has answered whether it can open paths. */
   const [canOpen, setCanOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editDraft, setEditDraft] = useState('');
+  const [editVersion, setEditVersion] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showStale, setShowStale] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
+  const dirtyRef = useRef(false);
+  const isDirty = editMode && editDraft !== content;
+  dirtyRef.current = isDirty;
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -310,9 +337,16 @@ export function MarkdownTabBody(props: any) {
       const own = signal ?? new AbortController().signal;
       setStatus('loading');
       try {
-        const text = await api.readText(sessionId, path, own);
+        const result = await api.readText(sessionId, path, own);
         if (own.aborted) return;
-        setContent(text);
+        if (dirtyRef.current) {
+          setVersion(result.version);
+        } else {
+          setContent(result.content);
+          setVersion(result.version);
+          if (editMode) setEditDraft(result.content);
+          setEditVersion(result.version);
+        }
         setError('');
         setStatus('ready');
       } catch (err: any) {
@@ -331,6 +365,13 @@ export function MarkdownTabBody(props: any) {
     return () => ac.abort();
   }, [path, load]);
 
+  useEffect(() => {
+    setEditMode(false);
+    setEditDraft('');
+    setEditVersion('');
+    setShowStale(false);
+  }, [path]);
+
   // Live updates come from the file watch, not from a button: the first frame
   // (`ready`) means the Host is watching, and every `change` frame re-reads the
   // file. Only when watching turns out to be unavailable does the header offer
@@ -348,7 +389,9 @@ export function MarkdownTabBody(props: any) {
         for await (const frame of api.watch(sessionId, path, ac.signal)) {
           if (ac.signal.aborted) return;
           setLive('live');
-          if (frame && frame.kind === 'change') void load(ac.signal);
+          if (frame && frame.kind === 'change' && !dirtyRef.current) {
+            void load(ac.signal);
+          }
         }
         // The stream ended on its own: no more live updates for this file.
         if (!ac.signal.aborted) setLive('unavailable');
@@ -528,6 +571,112 @@ export function MarkdownTabBody(props: any) {
       return next;
     });
   }, []);
+
+  const enterEdit = useCallback(() => {
+    setEditDraft(content);
+    setEditVersion(version);
+    setEditMode(true);
+  }, [content, version]);
+
+  const exitEdit = useCallback(() => {
+    if (dirtyRef.current) {
+      if (!window.confirm('有未保存的更改，确定放弃吗？')) return;
+    }
+    setEditMode(false);
+    setEditDraft('');
+    setEditVersion('');
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!api?.writeText || saving) return;
+    if (!sessionId) {
+      setError('没有会话上下文，无法保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await api.writeText(sessionId, path, editDraft, editVersion);
+      if (result.status === 'saved') {
+        setContent(editDraft);
+        setVersion(result.version);
+        setEditVersion(result.version);
+        setError('');
+      } else if (result.status === 'stale') {
+        setShowStale(true);
+      } else {
+        const msg = result.status === 'denied' ? result.reason
+          : result.status === 'missing' ? '文件不存在'
+          : result.status === 'bad-request' ? result.reason
+          : result.status === 'error' ? result.message
+          : '保存失败';
+        setError(msg);
+      }
+    } catch (err: any) {
+      setError(String(err?.message ?? err));
+    } finally {
+      setSaving(false);
+    }
+  }, [api, path, editDraft, editVersion, saving, sessionId]);
+
+  const forceSave = useCallback(async () => {
+    setShowStale(false);
+    if (!api?.writeText) return;
+    if (!sessionId) {
+      setError('没有会话上下文，无法保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await api.writeText(sessionId, path, editDraft, '');
+      if (result.status === 'saved') {
+        setContent(editDraft);
+        setVersion(result.version);
+        setEditVersion(result.version);
+        setError('');
+      } else {
+        const msg = result.status === 'error' ? result.message : '保存失败';
+        setError(msg);
+      }
+    } catch (err: any) {
+      setError(String(err?.message ?? err));
+    } finally {
+      setSaving(false);
+    }
+  }, [api, path, editDraft, saving, sessionId]);
+
+  const reloadFromDisk = useCallback(() => {
+    setShowStale(false);
+    setEditMode(false);
+    setEditDraft('');
+    setEditVersion('');
+    void load();
+  }, [load]);
+
+  // Ctrl/Cmd+S saves the editor.
+  useEffect(() => {
+    if (!editMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (dirtyRef.current && !saving) void handleSave();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [editMode, saving, handleSave]);
+
+  // Warn before closing the tab while edits are unsaved.
+  useEffect(() => {
+    if (!editMode) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [editMode]);
 
   // A click inside the document is a navigation the tab owns: the browser would
   // otherwise resolve a relative link against the app's own URL and leave the
@@ -711,6 +860,35 @@ export function MarkdownTabBody(props: any) {
               >
                 刷新
               </button>
+            ) : null}
+            {api?.writeText && status === 'ready' ? (
+              editMode ? (
+                <>
+                  <button
+                    className="md-live-btn"
+                    onClick={handleSave}
+                    disabled={saving || !isDirty}
+                    title={saving ? '保存中…' : isDirty ? '保存 (Ctrl+S)' : '无更改'}
+                  >
+                    {saving ? '保存中…' : '保存'}
+                  </button>
+                  <button
+                    className="md-live-btn"
+                    onClick={exitEdit}
+                    title="返回预览"
+                  >
+                    预览
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="md-live-btn"
+                  onClick={enterEdit}
+                  title="编辑源文件"
+                >
+                  编辑
+                </button>
+              )
             ) : null}
             {settingsOpen ? (
               <div className="md-live-settings" role="dialog" aria-label="面板设置">
@@ -902,6 +1080,18 @@ export function MarkdownTabBody(props: any) {
           <div className="md-live-status md-live-status-error">{error}</div>
         ) : status !== 'ready' ? (
           <div className="md-live-status">读取中…</div>
+        ) : editMode ? (
+          <div className="md-live-editor-wrap">
+            {error ? (
+              <div className="md-live-editor-error">{error}</div>
+            ) : null}
+            <textarea
+              className="md-live-editor"
+              value={editDraft}
+              onChange={(e) => { setEditDraft(e.target.value); if (error) setError(''); }}
+              spellCheck={false}
+            />
+          </div>
         ) : (
           <div className="md-live-split">
             {toc.length > 0 && (
@@ -937,6 +1127,18 @@ export function MarkdownTabBody(props: any) {
           </div>
         )}
       </div>
+      {showStale ? (
+        <div className="md-live-dialog-overlay">
+          <div className="md-live-dialog" role="alertdialog" aria-label="文件已被外部修改">
+            <p className="md-live-dialog-title">文件已被外部修改</p>
+            <p className="md-live-dialog-body">其他程序或 Agent 已修改了这个文件。您可以覆盖它或重新加载。</p>
+            <div className="md-live-dialog-actions">
+              <button className="md-live-btn" onClick={reloadFromDisk}>重新加载</button>
+              <button className="md-live-btn md-live-btn-primary" onClick={forceSave}>覆盖</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

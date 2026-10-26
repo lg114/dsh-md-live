@@ -19,6 +19,9 @@ global.Node = dom.window.Node;
 global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 global.cancelAnimationFrame = (id) => clearTimeout(id);
 
+// Default confirm to true so dirty-exit tests pass; individual tests can override.
+dom.window.confirm = () => true;
+
 // The bundle copies code through the async clipboard; jsdom has no such API.
 const copied = [];
 Object.defineProperty(dom.window.navigator, 'clipboard', {
@@ -72,6 +75,8 @@ let disposed = 0;
 let listFailure = null;
 let watchFails = false;
 let listDelay = 0;
+let writeFails = null;
+const writeCalls = [];
 
 // A tiny workspace tree: a root file, a nested project, a skipped directory,
 // a non-Markdown file, and a dotfile.
@@ -184,7 +189,7 @@ const fakeCtx = {
       },
     },
     workspaceFiles: {
-      readBytes: async () => ({ ok: true, value: { data: new TextEncoder().encode(fileText) } }),
+      readBytes: async () => ({ ok: true, value: { data: new TextEncoder().encode(fileText), version: 'v1' } }),
       list: async (_s, dir) => {
         if (listDelay) await new Promise((r) => setTimeout(r, listDelay));
         if (listFailure) return { ok: false, error: { message: listFailure, code: 'workspace-file/not-found' } };
@@ -199,6 +204,13 @@ const fakeCtx = {
           if (signal.aborted) return;
           yield { kind: 'change', change: { absolutePath: 'x', version: 'v' + Date.now() } };
         }
+      },
+    },
+    mdLive: {
+      writeText: async (_sessionId, _path, _content, _version) => {
+        writeCalls.push({ sessionId: _sessionId, path: _path, content: _content, version: _version });
+        if (writeFails) return { ok: true, value: { status: writeFails === '版本冲突' ? 'stale' : 'error', currentVersion: 'v99', message: writeFails } };
+        return { ok: true, value: { status: 'saved', version: 'v' + (writeCalls.length + 1), bytes: new TextEncoder().encode(_content).byteLength } };
       },
     },
   },
@@ -722,6 +734,112 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('62) an unparseable expression does not throw and stays visible:',
     mathEl.querySelectorAll('.md-live-math[data-rendered="1"]').length === 3);
   r15.unmount();
+
+  // --- Editor mode ---
+  fileText = '# 写入测试\n\n内容。\n';
+  writeCalls.length = 0;
+  writeFails = null;
+  const writeEl = document.createElement('div');
+  document.body.appendChild(writeEl);
+  const r16 = createRoot(writeEl);
+  r16.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't16', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(200);
+
+  const editBtn = [...writeEl.querySelectorAll('.md-live-actions button')].find((b) => b.textContent === '编辑');
+  console.log('63) edit button appears when writeText is available:', Boolean(editBtn));
+
+  if (editBtn) {
+    editBtn.click();
+    await wait(60);
+    const textarea = writeEl.querySelector('.md-live-editor');
+    console.log('64) edit mode shows textarea:', Boolean(textarea));
+
+    if (textarea) {
+      const setVal = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+      setVal.call(textarea, '# 修改后的内容\n\n新段落。\n');
+      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await wait(30);
+
+      const saveBtn = [...writeEl.querySelectorAll('.md-live-actions button')].find((b) => b.textContent === '保存');
+      console.log('65) save button appears and is enabled:', Boolean(saveBtn) && !saveBtn?.disabled);
+
+      if (saveBtn) {
+        saveBtn.click();
+        await wait(200);
+        console.log('66) save calls api.writeText with correct args:',
+          writeCalls.length === 1 &&
+          writeCalls[0].sessionId === 's1' &&
+          writeCalls[0].path === DOC &&
+          writeCalls[0].content.includes('修改后的内容'));
+      } else {
+        console.log('66) save calls api.writeText: false (button missing)');
+      }
+
+      // Test stale dialog
+      writeFails = '版本冲突';
+      writeCalls.length = 0;
+      setVal.call(textarea, '# 再次修改\n');
+      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+      await wait(30);
+      const saveBtn2 = [...writeEl.querySelectorAll('.md-live-actions button')].find((b) => b.textContent === '保存');
+      if (saveBtn2) {
+        saveBtn2.click();
+        await wait(200);
+      }
+      const staleDialog = writeEl.querySelector('.md-live-dialog');
+      console.log('67) stale result shows conflict dialog:', Boolean(staleDialog));
+
+      if (staleDialog) {
+        const overwriteBtn = [...staleDialog.querySelectorAll('button')].find((b) => b.textContent === '覆盖');
+        const reloadBtn = [...staleDialog.querySelectorAll('button')].find((b) => b.textContent === '重新加载');
+        console.log('68) dialog offers overwrite and reload:', Boolean(overwriteBtn) && Boolean(reloadBtn));
+      } else {
+        console.log('68) dialog offers overwrite and reload: false (dialog missing)');
+      }
+      writeFails = null;
+
+      // Test preview button exits edit mode
+      const previewBtn = [...writeEl.querySelectorAll('.md-live-actions button')].find((b) => b.textContent === '预览');
+      if (previewBtn) {
+        previewBtn.click();
+        await wait(60);
+      }
+      const textareaGone = !writeEl.querySelector('.md-live-editor');
+      console.log('69) preview button exits edit mode:', textareaGone);
+    } else {
+      console.log('65) save button appears and is enabled: false (textarea missing)');
+      console.log('66) save calls api.writeText: false (textarea missing)');
+      console.log('67) stale result shows conflict dialog: false');
+      console.log('68) dialog offers overwrite and reload: false');
+      console.log('69) preview button exits edit mode: false');
+    }
+  } else {
+    console.log('64) edit mode shows textarea: false (edit button missing)');
+    console.log('65) save button appears and is enabled: false');
+    console.log('66) save calls api.writeText: false');
+    console.log('67) stale result shows conflict dialog: false');
+    console.log('68) dialog offers overwrite and reload: false');
+    console.log('69) preview button exits edit mode: false');
+  }
+  r16.unmount();
+
+  // When writeText is absent from the api, the edit button must not appear.
+  const apiNoWrite = { ...api };
+  delete apiNoWrite.writeText;
+  const noWriteEl = document.createElement('div');
+  document.body.appendChild(noWriteEl);
+  const r17 = createRoot(noWriteEl);
+  r17.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't17', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api: apiNoWrite,
+  }));
+  await wait(200);
+  console.log('70) no edit button when writeText is absent:',
+    ![...noWriteEl.querySelectorAll('.md-live-actions button')].some((b) => b.textContent === '编辑'));
+  r17.unmount();
 
 
   process.exit(0);

@@ -3,43 +3,84 @@
  *
  * The plugin's surface is the browser tab: it lists the workspace and reads
  * files through the Client's Remote face (`ctx.remote.workspaceFiles`), and
- * keeps the open file fresh with that face's own file watch. Nothing about
- * *showing* a document needs to run in Node.
+ * keeps the open file fresh with that face's own file watch.
  *
- * One thing does: the Agent has no way to ask the panel for anything, because
- * the Client only ever observes the Session. A tool call is the one thing it
- * can emit that the Client can see, so `preview_md` exists here for no other
- * reason than to be that signal — the Client reacts to the `tool/call` frame and
- * opens the file.
+ * Two things run in Node:
+ *
+ * 1. The Agent has no way to ask the panel for anything, because the Client
+ *    only ever observes the Session. A tool call is the one thing it can emit
+ *    that the Client can see, so `preview_md` exists here for no other reason
+ *    than to be that signal — the Client reacts to the `tool/call` frame and
+ *    opens the file.
+ *
+ * 2. `workspaceFiles` has no write API, so saving edits from the panel needs a
+ *    custom Typert Remote (`mdLive/writeText`). The `MdLiveRemote` service is
+ *    registered here when the composition has a `typert` service, and its
+ *    manifest is committed to the Typert registry so the Gateway can route
+ *    client calls to it.
  *
  * An earlier revision watched the workspace with chokidar and emitted
  * `md-live:*` events for the Client to consume. That path was dead: DSH has no
  * Host → Client event bridge, so those events never left the process, and the
  * watcher only cost I/O. Do not reintroduce a watcher here.
  */
+import { MdLiveRemote } from './host/md-live-remote.js';
+import { TYPERT } from './host/md-live-typert.js';
 
 export const name = 'dsh-md-live';
 
 /**
  * No Host service is required to register this package.
  *
- * The tool registry is optional: a composition without one still gets the tab,
- * and `apply` simply never registers the tool.
+ * The tool registry and the typert registry are both optional: a composition
+ * without them still gets the tab, and `apply` simply skips the corresponding
+ * registration.
  */
 export const inject: string[] = [];
 
 /**
- * Register the Agent-facing `preview_md` tool when a tool registry exists.
+ * Register the Remote write service and the Agent-facing `preview_md` tool.
  *
- * `ctx.inject` scopes the work to compositions that actually have one, so this
- * plugin keeps loading in a Host that does not run an Agent at all.
+ * Both are guarded by `ctx.inject` so the plugin keeps loading in compositions
+ * that lack `typert` or `tools` — the tab works for reading either way.
  *
  * @param ctx - Host context.
  */
 export function apply(ctx: any): void {
+  ctx.inject(['typert'], (typertCtx: any) => {
+    void registerRemoteService(typertCtx);
+  });
+
   ctx.inject(['tools'], (toolsCtx: any) => {
     void registerPreviewTool(toolsCtx);
   });
+}
+
+/**
+ * Instantiate the write Remote and commit its manifest to the Typert registry.
+ *
+ * The `new MdLiveRemote(ctx)` call triggers the Cordis `Service` base
+ * constructor, which registers the instance as `ctx.mdLive`. The manifest
+ * registration tells the Gateway how to decode wire-level calls into the
+ * method's positional parameters.
+ *
+ * A failure here costs the write capability and nothing else — the tab still
+ * opens, reads, and watches files through `workspaceFiles`.
+ *
+ * @param ctx - Host context scoped to include `typert`.
+ */
+function registerRemoteService(ctx: any): void {
+  try {
+    new MdLiveRemote(ctx);
+    ctx.typert.register({
+      package: 'dsh-md-live',
+      face: 'host' as const,
+      schemas: [],
+      invocations: TYPERT.invocations,
+    });
+  } catch (err) {
+    console.warn('[dsh-md-live] Remote 写入服务未注册：', err);
+  }
 }
 
 /**

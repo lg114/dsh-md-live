@@ -6,6 +6,7 @@ import {
   type MdLiveScanBudget,
   type MdLiveScanOptions,
   type MdLiveTruncation,
+  type WriteResult,
 } from './components/MarkdownTab';
 import {
   isFollowingEnabled,
@@ -13,6 +14,7 @@ import {
   markdownWriteTarget,
   resultCallId,
 } from './utils/agent-writes';
+import { CLIENT_DESCRIPTORS } from './descriptors.js';
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -262,6 +264,38 @@ export const inject = [
  * @param ctx - client root context carrying the slot, tab, and Remote services.
  */
 export function apply(ctx: any) {
+  // Register the write Remote manifest on the client side so the Gateway
+  // creates the `ctx.remote.mdLive` namespace. The Host already registered
+  // the service and manifest; this mirrors the descriptor half on the client.
+  let mdLiveReady = Promise.resolve();
+  if (typeof ctx.remote?.$mount === 'function') {
+    try {
+      console.log('[dsh-md-live] Client: 调用 $mount...');
+      mdLiveReady = ctx.remote.$mount({
+        package: 'dsh-md-live',
+        descriptors: CLIENT_DESCRIPTORS,
+      });
+      console.log('[dsh-md-live] Client: $mount 返回:', mdLiveReady);
+      mdLiveReady.then(() => {
+        console.log('[dsh-md-live] Client: $mount 完成');
+        const namespaces = ctx.remote?.namespaces;
+        if (namespaces instanceof Map) {
+          const ns = namespaces.get('mdLive');
+          const service = ns?.service;
+          console.log('[dsh-md-live] Client: service keys:', Object.keys(service || {}));
+          console.log('[dsh-md-live] Client: invokeRemote type:', typeof service?.invokeRemote);
+          console.log('[dsh-md-live] Client: invokeRemote:', service?.invokeRemote);
+        }
+      }).catch(err => {
+        console.error('[dsh-md-live] Client: $mount 失败:', err);
+      });
+    } catch (err) {
+      console.warn('[dsh-md-live] client Remote 注册失败：', err);
+    }
+  } else {
+    console.warn('[dsh-md-live] Client: ctx.remote.$mount 不可用');
+  }
+
   const api: MdLiveApi = {
     open: (path: string) => {
       try {
@@ -281,7 +315,10 @@ export function apply(ctx: any) {
           : data instanceof ArrayBuffer
             ? new Uint8Array(data)
             : new Uint8Array(data ?? []);
-      return new TextDecoder('utf-8').decode(view);
+      return {
+        content: new TextDecoder('utf-8').decode(view),
+        version: typeof bytes?.version === 'string' ? bytes.version : '',
+      };
     },
     listMarkdown: async (
       sessionId: string,
@@ -422,6 +459,39 @@ export function apply(ctx: any) {
       } catch {
         return false;
       }
+    },
+    writeText: async (
+      sessionId: string,
+      path: string,
+      content: string,
+      version: string,
+    ): Promise<WriteResult> => {
+      // No separator rewriting here: the Host normalizes the path, and the tab
+      // knows the absolute spelling the workspace listing gave it.
+      await mdLiveReady;
+      const remote = ctx.remote;
+      let ns: any;
+      if (remote?.namespaces instanceof Map) {
+        ns = remote.namespaces.get('mdLive');
+      } else {
+        ns = remote?.mdLive;
+      }
+
+      let call: ((s: string, p: string, c: string, v: string) => Promise<any>) | undefined;
+      if (typeof ns?.service?.writeText === 'function') {
+        call = ns.service.writeText.bind(ns.service);
+      } else if (typeof ns?.writeText === 'function') {
+        call = ns.writeText.bind(ns);
+      }
+
+      if (!call) {
+        return { status: 'error', message: '当前 Host 不支持写入（mdLive Remote 服务未注册）' };
+      }
+
+      // The Session id is the wire's first parameter (a `session` lookup): it is
+      // what the Host resolves the sandbox policy from.
+      const result = unwrapRemote<WriteResult>(await call(sessionId, path, content, version));
+      return result;
     },
     watch: (sessionId: string, path: string, signal: AbortSignal) =>
       streamFrames(

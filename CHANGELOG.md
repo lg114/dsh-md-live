@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Writing from the panel, fenced by the right policy.
+
+### Fixed
+
+- Saving a file in the Session workspace no longer fails with "文件不在工作区内，
+  无法写入". `mdLive/writeText` takes the Session id as its first wire parameter
+  (a `session` lookup, resolved by the Host to the live Session), asks
+  `ctx.sandboxPolicy` for that Session's mode and workspace root, and passes the
+  result to `fs.writeText` as the per-call fence. Without it the backend fell
+  back to the deployment default — `workspace-write` rooted at the Host
+  process's cwd — so every file outside the directory `dsh web` was launched
+  from was refused, the Session's own workspace included. Starting the server
+  from the workspace directory only ever hid that by accident.
+- A refusal no longer claims the file is outside the workspace. The message now
+  names the sandbox mode and the root it allows, and a read-only mode reads as
+  a read-only refusal instead of a containment failure — the two used to be
+  indistinguishable because both arrive as "access denied".
+
+### Changed
+
+- `writeText` takes four positional arguments: `sessionId`, `path`, `content`,
+  `version`. The panel passes the tab's own Session id and reports "没有会话
+  上下文，无法保存" rather than writing with no policy at all.
+- The client no longer rewrites path separators before the call: the Host
+  normalizes the path, and the tab already holds the absolute spelling the
+  workspace listing used.
+- `verify:host` gained the policy-forwarding check and the denial-message
+  check; the client suite now asserts the Session id rides along with a save.
+
+### Documentation
+
+- Both READMEs describe the editor and document the write path: the four wire
+  parameters, the `session` lookup, how the policy is resolved and applied, and
+  what the fallbacks deliberately refuse to do. The Roadmap's write-API and
+  editor items are ticked, and the stale "KaTeX is still missing" and "renders
+  as plain text" notes are gone.
+
 ## [0.8.0] - 2026-10-26
 
 Math, at a price the next reader should know about.

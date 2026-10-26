@@ -1,0 +1,248 @@
+/**
+ * Host-side Remote service for md-live write operations.
+ *
+ * Extends `TypertRemoteService` so the Gateway discovers it through the same
+ * mechanism as the official `workspaceFiles` service. The `@Remote` decorator
+ * is replaced by a manually placed marker on the prototype — the decorator
+ * requires TC39 Stage 3 decorator support in the build pipeline, and the Host
+ * half is compiled with plain `tsc` targeting ES2022 / NodeNext.
+ *
+ * The marker key and shape match what `addMarkerInitializer` + `mark` produce
+ * in `dsh-typert-protocol`: a frozen `{ version: 1, methods: [...] }` object
+ * stored under the string key `'@deepseek-ai/dsh-typert-protocol/remote-methods'`
+ * on the class prototype.
+ *
+ * The first wire parameter is a `session` lookup, not a plain string: the
+ * Gateway resolves the client's `sessionId` through the registry entry that
+ * `dsh-session` owns, so this method receives the live Session and can ask
+ * `ctx.sandboxPolicy` for THAT session's mode and workspace root. Passing the
+ * policy through to `fs.writeText` is the whole point: without it the backend
+ * falls back to the deployment default (`workspace-write` rooted at the Host
+ * process's cwd), which denies every file outside the directory `dsh web` was
+ * launched from — including files in the Session's own workspace whenever the
+ * server was started elsewhere.
+ */
+import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
+import * as nodePath from 'path';
+
+const REMOTE_METHOD_DESCRIPTOR = '@deepseek-ai/dsh-typert-protocol/remote-methods';
+
+const MARKDOWN_EXT_RE = /\.(md|markdown|mdx)$/i;
+
+/** 3 MB — matches the read side's content size expectation. */
+const MAX_CONTENT_BYTES = 3 * 1024 * 1024;
+
+export type WriteResult =
+  | { status: 'saved'; version: string; bytes: number }
+  | { status: 'stale'; currentVersion: string }
+  | { status: 'denied'; reason: string }
+  | { status: 'missing' }
+  | { status: 'bad-request'; reason: string }
+  | { status: 'error'; message: string };
+
+/** The slice of `ctx.sandboxPolicy.resolve()` this service needs to report a denial. */
+interface SandboxPolicy {
+  mode?: string;
+  workspaceRoot?: string;
+}
+
+export class MdLiveRemote extends TypertRemoteService {
+  private readonly hostCtx: any;
+
+  constructor(ctx: any) {
+    super(ctx, 'mdLive');
+    this.hostCtx = ctx;
+  }
+
+  /**
+   * Write a full UTF-8 text to one workspace file.
+   *
+   * Returns a structured status instead of throwing, so the client can
+   * distinguish conflict, validation, and I/O failures without parsing
+   * error messages.
+   *
+   * When `version` is empty the concurrency check is skipped: the caller is
+   * saying "overwrite regardless" — used by the stale-dialog's force path.
+   *
+   * The Gateway calls this with positional arguments decoded from the wire
+   * format defined in `md-live-typert.ts`: `sessionId`, `path`, `content`,
+   * `version`. The lookup turns the id into the Session itself.
+   *
+   * @param sessionOrId - the Session whose sandbox policy fences this write;
+   *   a bare id is also accepted and looked up, so the method still works if
+   *   the wire hands over the unresolved value.
+   * @param path - absolute path of the file to write.
+   * @param content - the full new text.
+   * @param version - the version the editor started from; empty skips the check.
+   */
+  async writeText(sessionOrId: any, path: string, content: string, version: string): Promise<WriteResult> {
+    const sessions = this.hostCtx.get('sessions');
+    const session = typeof sessionOrId === 'string'
+      ? (typeof sessions?.get === 'function' ? sessions.get(sessionOrId) : undefined)
+      : sessionOrId;
+    if (session === undefined || session === null) {
+      return { status: 'denied', reason: '找不到这个会话，无法确定沙箱策略；请刷新页面后重试' };
+    }
+    if (typeof path !== 'string' || !path.trim()) {
+      return { status: 'bad-request', reason: '路径不能为空' };
+    }
+    if (typeof content !== 'string') {
+      return { status: 'bad-request', reason: '内容必须为文本' };
+    }
+
+    const bytes = new TextEncoder().encode(content).byteLength;
+    if (bytes > MAX_CONTENT_BYTES) {
+      return { status: 'denied', reason: `内容超过上限（${bytes} > ${MAX_CONTENT_BYTES} 字节）` };
+    }
+
+    if (!MARKDOWN_EXT_RE.test(path)) {
+      return { status: 'denied', reason: `只允许写入 Markdown 文件：${path}` };
+    }
+
+    const ctx = this.hostCtx;
+    const fs = ctx.get('fs');
+    if (!fs || typeof fs.resolve !== 'function' || typeof fs.writeText !== 'function') {
+      return { status: 'error', message: '文件系统服务不可用' };
+    }
+
+    // THIS session's policy, not the deployment fallback: the mode the user
+    // picked (read-only / workspace-write / danger-full-access) and the
+    // Session's own cwd as the writable root.
+    const policy = this.policyOf(session);
+
+    // `path` arrives with the browser's separators already normalized, but a
+    // caller may still hand us mixed ones.
+    const normalizedPath = nodePath.normalize(path);
+
+    let target: { targetKey: string; displayPath: string };
+    try {
+      target = await fs.resolve(normalizedPath);
+    } catch (err: any) {
+      if (err?.code === 'FS_NOT_FOUND') return { status: 'missing' };
+      return { status: 'denied', reason: describeFailure(err, normalizedPath, policy) };
+    }
+
+    if (!MARKDOWN_EXT_RE.test(target.displayPath)) {
+      return { status: 'denied', reason: `解析后的路径不是 Markdown：${target.displayPath}` };
+    }
+
+    const info = await fs.stat(target);
+    if (!info) {
+      return { status: 'missing' };
+    }
+
+    if (version && info.version !== version) {
+      return { status: 'stale', currentVersion: info.version };
+    }
+
+    try {
+      const intent = version
+        ? { kind: 'replaceIfVersion' as const, version }
+        : { kind: 'replaceIfVersion' as const, version: info.version };
+      // The fifth argument is the per-call policy. Omitting it is what made a
+      // workspace file look like it was "outside the workspace": the backend
+      // then fences against `process.cwd()` instead of the Session's cwd.
+      const outcome = await fs.writeText(target, content, intent, undefined, policy);
+      return { status: 'saved', version: outcome.version, bytes };
+    } catch (err: any) {
+      if (err?.code === 'FS_STALE_VERSION') {
+        return { status: 'stale', currentVersion: String(err?.version ?? '') };
+      }
+      const reason = describeFailure(err, path, policy);
+      if (isSandboxDenial(err) || err?.code === 'FS_NOT_OBSERVED') {
+        return { status: 'denied', reason };
+      }
+      return { status: 'error', message: reason };
+    }
+  }
+
+  /**
+   * Resolve the sandbox policy for one Session.
+   *
+   * Returns `undefined` when the composition has no `sandboxPolicy` service
+   * (e.g. a plain `fs-local` deployment): there is no fence to describe, and
+   * passing `undefined` to the backend keeps its own behavior.
+   *
+   * @param session - the Session the write belongs to.
+   * @returns the resolved policy, or `undefined` without a policy service.
+   */
+  private policyOf(session: any): SandboxPolicy | undefined {
+    const sandboxPolicy = this.hostCtx.get('sandboxPolicy');
+    if (typeof sandboxPolicy?.resolve !== 'function') return undefined;
+    return sandboxPolicy.resolve({ session });
+  }
+}
+
+/**
+ * Whether the backend refused on POLICY grounds rather than on I/O.
+ *
+ * Matched by code first, then by the message the two sandbox modes produce:
+ * a plain `fs-local` backend has no codes, but a message-shape check keeps the
+ * panel's "denied" wording for the same refusal.
+ *
+ * @param err - what the backend threw.
+ * @returns whether the failure is a sandbox refusal.
+ */
+function isSandboxDenial(err: any): boolean {
+  if (String(err?.code ?? '') === 'FS_SANDBOX_DENIED') return true;
+  const lower = String(err?.message ?? err).toLowerCase();
+  return /access denied under (?:read-only|workspace-write) mode/.test(lower) || lower.includes('sandbox');
+}
+
+/**
+ * Turn a filesystem failure into a sentence that names what actually refused.
+ *
+ * The old mapping collapsed every "access denied" into "文件不在工作区内",
+ * which was wrong in both directions: a read-only mode is not a containment
+ * failure, and a containment failure is about the writable root, which the
+ * message never named. A sandbox denial now reports the mode and the root the
+ * policy allows, so the reader can tell `dsh web`'s launch directory apart
+ * from the Session workspace.
+ *
+ * @param err - what the backend threw.
+ * @param path - the path the caller asked to write, for the message.
+ * @param policy - the policy that fenced the write, when one was resolved.
+ * @returns a human-readable reason.
+ */
+function describeFailure(err: any, path: string, policy: SandboxPolicy | undefined): string {
+  const message = String(err?.message ?? err);
+  const lower = message.toLowerCase();
+
+  if (isSandboxDenial(err)) {
+    if (lower.includes('read-only')) return `沙箱是只读模式，不能写入：${path}`;
+    const mode = typeof policy?.mode === 'string' ? policy.mode : 'workspace-write';
+    const root = typeof policy?.workspaceRoot === 'string' ? policy.workspaceRoot : '';
+    return root
+      ? `沙箱拒绝了这次写入（模式 ${mode}，允许写入的根目录是 ${root}）：${path}`
+      : `沙箱拒绝了这次写入（模式 ${mode}）：${path}`;
+  }
+
+  if (lower.includes('without reading it first')) {
+    return `写入前必须先读取这个文件：${path}`;
+  }
+  if (lower.includes('permission') || lower.includes('eperm') || lower.includes('eacces')) {
+    return `没有写入权限：${path}`;
+  }
+  if (lower.includes('no such file') || lower.includes('enoent') || lower.includes('not found')) {
+    return `文件不存在：${path}`;
+  }
+  if (lower.includes('readonly') || lower.includes('read-only') || lower.includes('erofs')) {
+    return `文件为只读：${path}`;
+  }
+  return `写入失败：${message}`;
+}
+
+// Place the Remote method marker that the Gateway's `remoteMethods()` reads.
+// This is what `@Remote` would produce via `addMarkerInitializer` + `mark()`.
+Object.defineProperty(MdLiveRemote.prototype, REMOTE_METHOD_DESCRIPTOR, {
+  configurable: true,
+  value: Object.freeze({
+    version: 1,
+    methods: Object.freeze([
+      Object.freeze({
+        method: 'writeText',
+        invocation: Object.freeze({ kind: 'direct' }),
+      }),
+    ]),
+  }),
+});
