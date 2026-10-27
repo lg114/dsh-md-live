@@ -488,19 +488,19 @@ export function MarkdownTabBody(props: any) {
   // Scan the workspace whenever the picker is on screen. Every failure is
   // reported as a failure, never as "no files" — an empty list means the scan
   // really finished and found nothing.
-  useEffect(() => {
+  const scan = useCallback(() => {
     if (path) return;
     if (!api) {
       setList({ ...EMPTY_LIST, status: 'error', error: t('error.noPreviewApi') });
-      return;
+      return () => {};
     }
     if (!sessionId) {
       setList({ ...EMPTY_LIST, status: 'error', error: t('error.noSessionScan') });
-      return;
+      return () => {};
     }
     if (!root) {
       setList({ ...EMPTY_LIST, status: 'error', error: t('error.noWorkspacePath') });
-      return;
+      return () => {};
     }
     const ac = new AbortController();
     setList({ ...EMPTY_LIST, status: 'loading' });
@@ -526,6 +526,19 @@ export function MarkdownTabBody(props: any) {
     })();
     return () => ac.abort();
   }, [path, api, sessionId, root, skipDirs, t]);
+
+  useEffect(() => scan(), [scan]);
+
+  // Re-scan when the tab becomes visible again, so new or deleted files show
+  // up without the user having to navigate away and back.
+  const wasVisible = useRef(false);
+  useEffect(() => {
+    const isVisible = tab?.visible === true;
+    if (isVisible && !wasVisible.current && !path) {
+      scan();
+    }
+    wasVisible.current = isVisible;
+  }, [tab?.visible, path, scan]);
 
   // Ask once per Session whether the Host can hand a path to the OS. It cannot
   // when the browser is attached over the network, and offering a dead button
@@ -1071,6 +1084,15 @@ export function MarkdownTabBody(props: any) {
                         ? t('picker.count', { visible: visible.length, total: list.files.length })
                         : t('picker.countAll', { total: list.files.length })}
                   </span>
+                  <button
+                    className="md-live-btn md-live-picker-refresh"
+                    title={t('picker.refreshTitle')}
+                    disabled={scanning}
+                    onClick={() => scan()}
+                    aria-label={t('picker.refresh')}
+                  >
+                    {t('picker.refresh')}
+                  </button>
                 </div>
                 <input
                   className="md-live-search"
