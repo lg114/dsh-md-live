@@ -395,6 +395,7 @@ export function MarkdownTabBody(props: any) {
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
+  const reloadBtnRef = useRef<HTMLButtonElement | null>(null);
   const dirtyRef = useRef(false);
   const isDirty = editMode && editDraft !== content;
   dirtyRef.current = isDirty;
@@ -751,6 +752,24 @@ export function MarkdownTabBody(props: any) {
     setEditVersion('');
     void load();
   }, [load]);
+
+  // Stale dialog: focus the reload button when it opens, and close on Escape.
+  useEffect(() => {
+    if (!showStale) return;
+    // Defer focus until the dialog is in the DOM.
+    const timer = setTimeout(() => reloadBtnRef.current?.focus(), 0);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowStale(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showStale]);
 
   // Ctrl/Cmd+S saves the editor.
   useEffect(() => {
@@ -1278,7 +1297,7 @@ export function MarkdownTabBody(props: any) {
             <p className="md-live-dialog-title">{t('stale.title')}</p>
             <p className="md-live-dialog-body">{t('stale.body')}</p>
             <div className="md-live-dialog-actions">
-              <button className="md-live-btn" onClick={reloadFromDisk}>{t('stale.reload')}</button>
+              <button ref={reloadBtnRef} className="md-live-btn" onClick={reloadFromDisk}>{t('stale.reload')}</button>
               <button className="md-live-btn md-live-btn-primary" onClick={forceSave}>{t('stale.overwrite')}</button>
             </div>
           </div>
