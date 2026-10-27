@@ -1088,22 +1088,35 @@ export function MarkdownTabBody(props: any) {
                   <div className="md-live-status">{t('picker.noMatch', { query: query.trim() })}</div>
                 ) : (
                   <div className="md-live-picker-list">
-                    {!query.trim() && recentVisible.length > 0 ? (
-                      <>
-                        <div className="md-live-picker-section" role="heading" aria-level={2}>
-                          {t('picker.recent')}
-                        </div>
-                        {recentVisible.map((abs) =>
-                          renderRow(abs, relativeTo(list.root || root, abs), 'recent:'),
-                        )}
-                        <div className="md-live-picker-section" role="heading" aria-level={2}>
-                          {t('picker.all')}
-                        </div>
-                      </>
-                    ) : null}
-                    {visible.map((abs) =>
-                      renderRow(abs, relativeTo(list.root || root, abs), 'all:'),
-                    )}
+                    {(() => {
+                      const showRecent = !query.trim() && recentVisible.length > 0;
+                      const recentSet = showRecent ? new Set(recentVisible) : null;
+                      const allForRender = recentSet
+                        ? visible.filter((abs) => !recentSet.has(abs))
+                        : visible;
+                      return (
+                        <>
+                          {showRecent ? (
+                            <>
+                              <div className="md-live-picker-section" role="heading" aria-level={2}>
+                                {t('picker.recent')}
+                              </div>
+                              {recentVisible.map((abs) =>
+                                renderRow(abs, relativeTo(list.root || root, abs), 'recent:'),
+                              )}
+                              {allForRender.length > 0 ? (
+                                <div className="md-live-picker-section" role="heading" aria-level={2}>
+                                  {t('picker.all')}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : null}
+                          {allForRender.map((abs) =>
+                            renderRow(abs, relativeTo(list.root || root, abs), 'all:'),
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
                 {!scanning && (list.truncatedBy || skipDirs.length > 0) ? (
