@@ -98,6 +98,13 @@ export const zh = {
   'error.remoteFailed': '远端调用失败',
   'error.writeUnsupported': '当前 Host 不支持写入（mdLive Remote 服务未注册）',
 
+  'quote.action': '加入对话',
+  'quote.attribution': '—— 摘自 `{path}`',
+  'quote.conflict': '输入框内容刚变过，请再点一次',
+  'quote.noSession': '这个会话不在前台，插不进去',
+  'quote.unavailable': '当前版本拿不到输入框',
+  'quote.chips': '草稿里有文件引用，替换会丢掉它们，已取消',
+
   'stale.title': '文件已被外部修改',
   'stale.body': '其他程序或 Agent 已修改了这个文件。您可以覆盖它或重新加载。',
   'stale.reload': '重新加载',
@@ -198,6 +205,13 @@ export const en: Record<LocaleKey, string> = {
   'error.saveFailed': 'Save failed',
   'error.remoteFailed': 'The Remote call failed',
   'error.writeUnsupported': 'This Host does not support writing (the mdLive Remote is not registered)',
+
+  'quote.action': 'Add to conversation',
+  'quote.attribution': '— from `{path}`',
+  'quote.conflict': 'The draft changed just now; click again',
+  'quote.noSession': 'That session is not in the foreground',
+  'quote.unavailable': 'The composer cannot be reached in this build',
+  'quote.chips': 'The draft holds file references; inserting would drop them, so nothing was changed',
 
   'stale.title': 'The file changed on disk',
   'stale.body': 'Another program or the Agent changed this file. Overwrite it, or reload and keep their version.',

@@ -78,6 +78,14 @@ export interface DenialDetail {
   maxBytes?: number;
 }
 
+/** What an "add to conversation" attempt achieved. */
+export type QuoteOutcome =
+  | { status: 'inserted' }
+  | { status: 'conflict' }
+  | { status: 'no-session' }
+  | { status: 'unavailable' }
+  | { status: 'chips' };
+
 /** Structured write outcome returned by the Host. */
 export type WriteResult =
   | { status: 'saved'; version: string; bytes: number }
@@ -260,6 +268,12 @@ export interface MdLiveApi {
    * deployment default root (the directory `dsh web` was launched from).
    */
   writeText?: (sessionId: string, path: string, content: string, version: string) => Promise<WriteResult>;
+  /**
+   * Put a selected excerpt into this Session's composer as a blockquote with
+   * its source, at the caret. The plugin owns the conversation plumbing; the
+   * panel only supplies the text and the path it came from.
+   */
+  addToConversation?: (sessionId: string, excerpt: string, source: string) => Promise<QuoteOutcome>;
 }
 
 const basename = (p?: string): string => (p ? p.split(/[\\/]/).pop() || p : '');
@@ -393,6 +407,10 @@ export function MarkdownTabBody(props: any) {
   const [saving, setSaving] = useState(false);
   const [showStale, setShowStale] = useState(false);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  /** The excerpt waiting for its "add to conversation" click, with its anchor. */
+  const [quote, setQuote] = useState<{ text: string; top: number; left: number } | null>(null);
+  /** A one-line explanation when the excerpt could not be inserted. */
+  const [quoteNotice, setQuoteNotice] = useState('');
   const previewRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const reloadBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -877,6 +895,111 @@ export function MarkdownTabBody(props: any) {
   const shownDir = dirname(shownPath);
   const hasReading = reading.fontSize !== null || reading.lineHeight !== null;
 
+  // --- Selection → conversation -------------------------------------------
+  // Selecting text in the preview offers to quote it into the composer. The
+  // excerpt is captured when the button appears, so the click cannot race a
+  // collapsing selection; the button is ours, not the browser's menu.
+  useEffect(() => {
+    if (editMode) {
+      setQuote(null);
+      return;
+    }
+    const onUp = () => {
+      const host = previewRef.current;
+      const selection = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (!host || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+        setQuote(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const inside = (node: Node | null) => Boolean(node && host.contains(node));
+      if (!inside(range.startContainer) || !inside(range.endContainer)) {
+        setQuote(null);
+        return;
+      }
+      const text = selection.toString().replace(/\s+$/, '');
+      if (!text.trim()) {
+        setQuote(null);
+        return;
+      }
+      // A real selection always has a rect; a DOM without layout (the test
+      // harness) has no `getBoundingClientRect` on Range at all, so the pill
+      // falls back to the viewport edge there instead of throwing.
+      const rect =
+        typeof range.getBoundingClientRect === 'function'
+          ? range.getBoundingClientRect()
+          : { left: 0, width: 0, bottom: 0 };
+      // Keep the pill on screen when the selection touches an edge.
+      const margin = 64;
+      const left = Math.min(Math.max(rect.left + rect.width / 2, margin), window.innerWidth - margin);
+      setQuote({ text, top: rect.bottom + 6, left });
+    };
+    document.addEventListener('mouseup', onUp);
+    return () => document.removeEventListener('mouseup', onUp);
+  }, [editMode]);
+
+  // Scroll, resize and Escape all invalidate the anchor the pill hangs from.
+  useEffect(() => {
+    if (!quote) return;
+    const drop = () => setQuote(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setQuote(null);
+    };
+    const host = previewRef.current;
+    // Capture inside the scroller: the preview may scroll in a child.
+    host?.addEventListener('scroll', drop, true);
+    window.addEventListener('resize', drop);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      host?.removeEventListener('scroll', drop, true);
+      window.removeEventListener('resize', drop);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [quote]);
+
+  // A live refresh rebuilds the DOM under the selection; the anchor is stale.
+  useEffect(() => {
+    setQuote(null);
+  }, [html]);
+
+  // The notice is transient: it explains a failed attempt, it is not a state.
+  useEffect(() => {
+    if (!quoteNotice) return;
+    const timer = setTimeout(() => setQuoteNotice(''), 5000);
+    return () => clearTimeout(timer);
+  }, [quoteNotice]);
+
+  const addQuote = useCallback(async () => {
+    const current = quote;
+    if (!current || !api?.addToConversation) return;
+    setQuote(null);
+    if (!sessionId) {
+      setQuoteNotice(t('quote.noSession'));
+      return;
+    }
+    try {
+      const outcome = await api.addToConversation(sessionId, current.text, shownPath || path);
+      if (outcome.status === 'inserted') {
+        setQuoteNotice('');
+        return;
+      }
+      const message =
+        outcome.status === 'conflict'
+          ? t('quote.conflict')
+          : outcome.status === 'no-session'
+            ? t('quote.noSession')
+            : outcome.status === 'chips'
+              ? t('quote.chips')
+              : t('quote.unavailable');
+      setQuoteNotice(message);
+      // A revision clash is transient: keep the excerpt so one more click
+      // retries instead of asking the reader to select all over again.
+      if (outcome.status === 'conflict') setQuote(current);
+    } catch (err: any) {
+      setQuoteNotice(String(err?.message ?? err));
+    }
+  }, [api, quote, sessionId, shownPath, path, t]);
+
   const renderRow = (abs: string, shown: string, keyPrefix: string) => {
     const dir = dirname(shown);
     return (
@@ -1316,6 +1439,25 @@ export function MarkdownTabBody(props: any) {
             alt=""
             onClick={(e) => e.stopPropagation()}
           />
+        </div>
+      ) : null}
+      {quote ? (
+        <button
+          type="button"
+          className="md-live-quote-btn"
+          style={{ top: `${quote.top}px`, left: `${quote.left}px` }}
+          // Keep the selection alive until click: without this the mouseup on
+          // the button would collapse it and tear the button out from under
+          // the pointer.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => void addQuote()}
+        >
+          {t('quote.action')}
+        </button>
+      ) : null}
+      {quoteNotice ? (
+        <div className="md-live-quote-notice" role="status">
+          {quoteNotice}
         </div>
       ) : null}
     </div>

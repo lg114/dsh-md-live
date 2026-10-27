@@ -6,6 +6,7 @@ import {
   type MdLiveScanBudget,
   type MdLiveScanOptions,
   type MdLiveTruncation,
+  type QuoteOutcome,
   type WriteResult,
 } from './components/MarkdownTab';
 import {
@@ -16,6 +17,7 @@ import {
 } from './utils/agent-writes';
 import { CLIENT_DESCRIPTORS } from './descriptors.js';
 import { NS, installLocale, t as tr } from './locales';
+import { quoteInsertion } from './utils/quote';
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -271,6 +273,7 @@ function startFollowing(ctx: any): () => void {
 export const inject = [
   'slots',
   'locale',
+  'sessions',
   'sidebarRightTabs',
   'sidebarRight',
   'remote',
@@ -520,6 +523,64 @@ export function apply(ctx: any) {
         signal,
         `Markdown watch ended: ${path}`,
       ),
+    addToConversation: async (sessionId: string, excerpt: string, source: string) => {
+      // `ctx.sessions.scope(id)` is the addressed route to a Session's client
+      // scope; the conversation service rebinds to it, and `input` is the very
+      // registry the composer's own facade comes from.
+      //
+      // Both reads go through `get`: cordis throws "cannot get property … without
+      // inject" on an undeclared property, and `sessions` is declared while the
+      // scoped `conversation` is not ours to declare. `get` answers undefined
+      // instead, which the caller turns into a notice.
+      let input: any;
+      try {
+        const sessions = typeof ctx.get === 'function' ? ctx.get('sessions') : ctx.sessions;
+        const scope = typeof sessions?.scope === 'function' ? sessions.scope(sessionId) : undefined;
+        if (!scope) return { status: 'no-session' } as QuoteOutcome;
+
+        const conversation =
+          typeof scope.get === 'function' ? scope.get('conversation') : scope.conversation;
+        input =
+          conversation && typeof conversation.input?.for === 'function'
+            ? conversation.input.for(scope)
+            : undefined;
+      } catch {
+        input = undefined;
+      }
+      if (!input || typeof input.setDraft !== 'function') {
+        return { status: 'unavailable' } as QuoteOutcome;
+      }
+
+      const state =
+        typeof input.state?.getSnapshot === 'function'
+          ? input.state.getSnapshot()
+          : { draft: '', occurrences: [] };
+      const draft = String(state?.draft ?? '');
+      const attribution = t('quote.attribution', { path: source });
+
+      // Prefer the caret: `insertText` applies the edit through the draft
+      // editor in one undo step and leaves the chips, the reader's typing and
+      // the revision guard intact. The facade provides it; the public
+      // `SessionInput` type does not, so it is probed rather than assumed.
+      if (typeof input.captureInsertion === 'function' && typeof input.insertText === 'function') {
+        const span = input.captureInsertion();
+        const insertion = quoteInsertion(excerpt, attribution, draft, span.start, span.end);
+        if (!insertion) return { status: 'unavailable' } as QuoteOutcome;
+        if (!input.insertText(insertion, span)) return { status: 'conflict' } as QuoteOutcome;
+        input.focus?.();
+        return { status: 'inserted' } as QuoteOutcome;
+      }
+
+      // Fallback: replace the draft wholesale — but `setDraft` is documented to
+      // remove inline reference chips, so never take that trade silently.
+      const occurrences = Array.isArray(state?.occurrences) ? state.occurrences : [];
+      if (occurrences.length > 0) return { status: 'chips' } as QuoteOutcome;
+      const insertion = quoteInsertion(excerpt, attribution, draft, draft.length, draft.length);
+      if (!insertion) return { status: 'unavailable' } as QuoteOutcome;
+      input.setDraft(draft + insertion);
+      input.focus?.();
+      return { status: 'inserted' } as QuoteOutcome;
+    },
   };
 
   // Stage one: what the type is. A guide entry is what makes it reachable from

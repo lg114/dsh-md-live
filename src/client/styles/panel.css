@@ -11,6 +11,7 @@
  */
 
 .md-live-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -873,4 +874,65 @@
   max-height: none;
   cursor: default;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* The "add to conversation" pill anchored under a text selection. It is fixed
+   to the viewport because it is dismissed on any scroll: an anchor that stays
+   behind while the document moves is worse than no button. */
+.md-live-quote-btn {
+  position: fixed;
+  z-index: 30;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+  border-radius: 999px;
+  /* Opaque on purpose: this pill floats over the document, so a translucent
+   * background would let the text underneath read through it. */
+  background-color: var(--dsw-alias-bg-layer-1, #fff);
+  background-image: none;
+  box-shadow: var(--dsw-alias-shadow-popover, 0 4px 14px rgba(0, 0, 0, 0.12));
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: md-live-quote-in 120ms ease-out;
+}
+
+.md-live-quote-btn:hover {
+  /* The tint rides on top of the opaque base instead of replacing it: keeping
+   * the base is what stops the paragraph behind the pill from showing through. */
+  background-image: linear-gradient(
+    var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06)),
+    var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06))
+  );
+}
+
+@keyframes md-live-quote-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 2px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* A transient explanation, not a state: it fades on its own. */
+.md-live-quote-notice {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 25;
+  padding: 6px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  box-shadow: var(--dsw-alias-shadow-popover, 0 4px 14px rgba(0, 0, 0, 0.12));
+  color: var(--dsw-alias-label-secondary, #57606a);
+  font-size: 12px;
+  line-height: 1.5;
 }

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Reading a document and asking about a paragraph, without leaving the panel.
+
+### Added
+
+- Selecting text in the preview offers **加入对话** / **Add to conversation**: the
+  excerpt becomes a blockquote with its source path in this Session's composer,
+  inserted at the caret through `ctx.sessions.scope(id).conversation.input`, and
+  the input takes focus. The excerpt is captured when the pill appears, so the
+  click cannot race a collapsing selection; the draft editor applies the edit in
+  one undo step, which keeps the draft's `@` references and anything already
+  typed. The caret path probes `insertText`/`captureInsertion` (the facade has
+  them; the public `SessionInput` type does not) and falls back to `setDraft`
+  only when the draft holds no reference chips, so a chip cannot be dropped
+  silently. A draft that changed between capture and click is reported with the
+  excerpt kept for one more click, and a Session that is not in the foreground
+  is refused rather than written into another Session's composer. Both services
+  are read through `ctx.get`, which carries no inject requirement and returns
+  the value traced to the reading context — property access on a service the
+  plugin did not declare throws `cannot get property … without inject`, and a
+  service only reachable through a Session scope is exactly that case.
+
+### Changed
+
+- `verify:client`'s locale stub now substitutes `{name}` placeholders the way
+  the real service does, so parameterised copy is exercised rather than merely
+  looked up.
+
 ## [0.9.0] - 2026-10-27
 
 An editor, and every write fenced by the right policy, in the reader's language.

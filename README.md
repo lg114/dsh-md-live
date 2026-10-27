@@ -12,6 +12,7 @@ Click `+` in the right Sidebar → pick `md-live` → choose a `.md` from the wo
 - **Whole-workspace scan** — walks the entire tree from the Session's workspace root, eight listings in flight per level, drawing results level by level: the first level shows up while the rest is still being walked.
 - **Editable filter rules** — `node_modules`, `.git`, `dist` and friends are skipped by default; the rules are edited in the panel, remembered per browser, and can be cleared to scan everything.
 - **Live refresh** — driven by `remote.workspaceFiles.changes`. A manual refresh button only appears when watching turns out to be unavailable.
+- **Quote into the conversation** — select text in the preview and a **加入对话** pill appears under it. One click puts the excerpt into this Session's composer as a blockquote with its source path, at the caret, and focuses the input; the draft, its @ references and whatever you had already typed stay exactly as they were. A draft that changed in the same instant is reported instead of overwritten.
 - **Edit and save in place** — **编辑** turns the document into a textarea over the same file; **保存** (or `Ctrl/Cmd+S`) writes it back. Saving is optimistic: the request carries the version the editor started from, and a file that changed underneath raises a dialog with **覆盖** and **重新加载** instead of quietly losing one side. A draft is guarded wherever the plugin navigates: the back arrow, another file from the picker, an Agent-follow switch and a browser unload all ask before they drop it, and a live update never overwrites a dirty draft.
 - **Follows the Agent, even with the panel closed** — when the Agent finishes writing a `.md` inside the workspace, the panel opens on that file. The subscription is plugin-level and fed by `remote.session.follow` for whichever Session is on screen, so it works whether or not a tab was already open. The switch waits for `tool/result` rather than `tool/call`, so the file is read after the write landed instead of before it. One checkbox in the panel settings turns it off.
 - **The Agent can ask, not just write** — a `preview_md` tool lets it put a document on screen on request ("show me the notes"). It is honoured even when automatic following is off, because that one was asked for.
@@ -98,7 +99,7 @@ Every fallback errs toward refusing: an unresolved lookup is retried as a plain 
 npm run build          # host (tsc) + client (esbuild)
 npm run build:client   # client only
 npm run verify         # both halves
-npm run verify:client  # mount the built bundle in jsdom and run 87 end-to-end checks
+npm run verify:client  # mount the built bundle in jsdom and run 92 end-to-end checks
 npm run verify:host    # run the built Host half against a fake context: 28 checks
 npm run clean
 ```

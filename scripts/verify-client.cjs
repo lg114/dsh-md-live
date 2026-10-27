@@ -111,6 +111,38 @@ const tree = (dir) => WORKSPACE[dir] ?? { path: dir, entries: [] };
 const sessionsHook = (selector) => selector({ byId: { s1: { cwd: 'C:\\w' } } });
 
 const captured = { tabType: null, body: null, title: null, opens: [], external: [], paths: [], layout: [], locales: null };
+// The composer draft an excerpt is inserted into. The real facade lives in the
+// conversation plugin; this stands in for the slice the panel touches, with the
+// same revision guard, so a conflict is reachable in a test.
+const draftState = { draft: '', draftRev: 1, occurrences: [] };
+const quoteLog = { inserted: [], focused: 0, insertReturns: true, setDrafts: 0 };
+const fakeInput = {
+  state: { getSnapshot: () => draftState },
+  captureInsertion: () => ({
+    start: draftState.draft.length,
+    end: draftState.draft.length,
+    draftRev: draftState.draftRev,
+  }),
+  insertText(text, span) {
+    if (!quoteLog.insertReturns || span.draftRev !== draftState.draftRev) return false;
+    quoteLog.inserted.push(text);
+    draftState.draft = draftState.draft.slice(0, span.start) + text + draftState.draft.slice(span.end);
+    draftState.draftRev += 1;
+    return true;
+  },
+  setDraft(text) {
+    quoteLog.setDrafts += 1;
+    draftState.draft = text;
+    draftState.draftRev += 1;
+  },
+  focus() {
+    quoteLog.focused += 1;
+  },
+};
+const fakeScope = {
+  conversation: { input: { for: () => fakeInput } },
+  get(name) { return this[name]; },
+};
 // Frames the fake Session stream hands to the plugin, in order.
 const followQueue = [];
 const followRequests = [];
@@ -139,9 +171,21 @@ const fakeCtx = {
     register(ns, dicts) { captured.locales = { ns, dicts }; return () => {}; },
     // The real service binds per namespace and reads the active locale at call
     // time; Chinese is enough here because the components get 	 as a prop.
-    bind() { return (key) => captured.locales?.dicts?.zh?.[key] ?? key; },
+    bind() {
+      // The real service substitutes {name} placeholders; mirror that so a
+      // caller passing params is actually tested.
+      return (key, params) => {
+        const template = captured.locales?.dicts?.zh?.[key] ?? key;
+        if (!params) return template;
+        return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+      };
+    },
   },
   sidebarRight: { openTab(kind, opts) { captured.opens.push([kind, opts]); }, mounted: mountedStore },
+  // The app reaches services through ctx.get (no inject requirement); mirror
+  // that so the quote path is tested the way production resolves it.
+  get(name) { return this[name]; },
+  sessions: { scope(id) { return id === 's1' ? fakeScope : undefined; } },
   layout: {
     openRightbar(track, fullscreen) {
       captured.layout.push([track, fullscreen]);
@@ -951,6 +995,95 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     sections.every((node) => node.getAttribute('role') === 'heading' && node.getAttribute('aria-level') === '2') &&
     sections.map((node) => node.textContent.trim()).join('|') === '最近打开|全部文件');
   r20.unmount();
+
+  // --- selecting text offers to quote it into the composer ---
+  fileText = '# 引用测试\n\n这是要被引用的第一段。\n\n第二段不该被选中。\n';
+  draftState.draft = '';
+  draftState.draftRev = 1;
+  draftState.occurrences = [];
+  quoteLog.inserted.length = 0;
+  quoteLog.focused = 0;
+  quoteLog.setDrafts = 0;
+  quoteLog.insertReturns = true;
+
+  const quoteEl = document.createElement('div');
+  document.body.appendChild(quoteEl);
+  const r21 = createRoot(quoteEl);
+  r21.render(React.createElement(captured.body.Comp, {
+    useTabInfo: () => ({ tab: { id: 't21', navigation: { params: { path: DOC }, revision: 1 }, signal: new AbortController().signal } }),
+    sessionId: 's1', useSessions: sessionsHook, api,
+  }));
+  await wait(250);
+
+  const selectFirstParagraph = () => {
+    const body = quoteEl.querySelector('.markdown-body');
+    const paragraph = body?.querySelector('p');
+    if (!body || !paragraph) return false;
+    const selection = dom.window.getSelection();
+    selection.removeAllRanges();
+    const range = dom.window.document.createRange();
+    range.selectNodeContents(paragraph);
+    selection.addRange(range);
+    document.dispatchEvent(new dom.window.MouseEvent('mouseup', { bubbles: true }));
+    return true;
+  };
+
+  selectFirstParagraph();
+  await wait(40);
+  const pill = quoteEl.querySelector('.md-live-quote-btn');
+  console.log('81) selecting text offers the quote pill:', pill?.textContent.trim() === '加入对话');
+
+  if (pill) {
+    pill.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    pill.click();
+    await wait(60);
+  }
+  console.log('82) the click inserts a quoted excerpt with its source:',
+    draftState.draft.includes('> 这是要被引用的第一段。') &&
+    draftState.draft.includes('—— 摘自 `GitHub/dsh-md-live/README.md`') &&
+    !draftState.draft.includes('第二段不该被选中') &&
+    quoteLog.focused === 1);
+
+  // Escape dismisses the pill without touching the draft.
+  selectFirstParagraph();
+  await wait(40);
+  const beforeEsc = draftState.draft;
+  document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait(40);
+  console.log('83) Escape dismisses the pill and leaves the draft alone:',
+    quoteEl.querySelector('.md-live-quote-btn') === null && draftState.draft === beforeEsc);
+
+  // A revision clash keeps the excerpt, says why, and offers another click.
+  quoteLog.insertReturns = false;
+  selectFirstParagraph();
+  await wait(40);
+  const retryPill = quoteEl.querySelector('.md-live-quote-btn');
+  if (retryPill) retryPill.click();
+  await wait(60);
+  const notice = quoteEl.querySelector('.md-live-quote-notice');
+  console.log('84) a draft clash is explained and the excerpt kept:',
+    Boolean(notice) && notice.textContent.includes('请再点一次') &&
+    quoteEl.querySelector('.md-live-quote-btn') !== null);
+  quoteLog.insertReturns = true;
+
+  // The api reports the cases a panel cannot fix by retrying.
+  const noSession = await api.addToConversation('s9', 'x', 'p.md');
+  const savedCapture = fakeInput.captureInsertion;
+  delete fakeInput.captureInsertion;
+  draftState.occurrences = [{ ref: 'a' }];
+  const chips = await api.addToConversation('s1', 'abc', 'p.md');
+  draftState.occurrences = [];
+  const savedInsert = fakeInput.insertText;
+  delete fakeInput.insertText;
+  const drafted = await api.addToConversation('s1', 'abc', 'p.md');
+  fakeInput.captureInsertion = savedCapture;
+  fakeInput.insertText = savedInsert;
+  console.log('85) the api refuses what it cannot do safely:',
+    noSession.status === 'no-session' &&
+    chips.status === 'chips' &&
+    drafted.status === 'inserted' &&
+    quoteLog.setDrafts === 1);
+  r21.unmount();
 
   process.exit(0);
 })();
