@@ -5,12 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-27
 
-Writing from the panel, fenced by the right policy, in the reader's language.
+An editor, and every write fenced by the right policy, in the reader's language.
 
 ### Added
 
+- The panel can edit. **编辑** turns the body into a textarea over the very file
+  it is showing, **保存** (or `Ctrl/Cmd+S`) writes it back, and the save carries
+  the version the editor started from. A file that changed underneath raises
+  **覆盖 / 重新加载** instead of letting one side win in silence, and a live
+  update never overwrites a dirty draft.
 - The panel follows DSH's locale. Its copy is one `md-live` namespace with `zh`
   and `en` dictionaries, registered through `ctx.locale`; the body and the tab
   chip declare `locale: NS`, so the slot renderer re-renders them with a freshly
@@ -61,17 +66,24 @@ Writing from the panel, fenced by the right policy, in the reader's language.
   a path — and it stays on screen while the list scrolls.
 - `verify:host` gained the policy-forwarding check and the denial-message
   check; the client suite now asserts the Session id rides along with a save,
-  and grew to 85 checks with the navigation guard (`back arrow`, declined
+  and grew to 87 checks with the navigation guard (`back arrow`, declined
   prompt, confirmed prompt, unmount) and the locale seats (both dictionaries,
   the `locale` on both registrations, an English render, a live switch).
+
+### Removed
+
+- The `spike/` manifests (`check-manifest.mjs`, `md-live-manifest.mjs`): two
+  hand-written sketches of the Remote descriptor from before the codegen shims,
+  imported by nothing.
 
 ### Documentation
 
 - Both READMEs describe the editor and document the write path: the four wire
   parameters, the `session` lookup, how the policy is resolved and applied, and
   what the fallbacks deliberately refuse to do. The Roadmap's write-API and
-  editor items are ticked, and the stale "KaTeX is still missing" and "renders
-  as plain text" notes are gone.
+  editor items are ticked, the stale "KaTeX is still missing" and "renders as
+  plain text" notes are gone, and the manual check (`test.md` +
+  `test-image.png`) is documented next to the automated suites.
 
 ## [0.8.0] - 2026-10-26
 
@@ -285,6 +297,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.9.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.9.0
 [0.8.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.8.0
 [0.7.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.7.0
 [0.6.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.6.0

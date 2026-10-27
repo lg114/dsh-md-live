@@ -107,6 +107,8 @@ npm run clean
 
 `verify:host` imports the built Host half and calls `apply` with a fake cordis context: what it injects, the tool's schema, the arguments it refuses, the descriptor's wire parameters, the per-call sandbox policy it forwards, how a denial is worded, and that a registry which throws costs the tool rather than the plugin. It cannot exercise a real Agent turn — that still needs the browser.
 
+Two files at the repository root are for the browser check rather than for the tests: `test.md` is a manual checklist (frontmatter, three code blocks, a relative image that also exercises a `..` path, four kinds of link, anchors, tables and lists) and `test-image.png` is the image it points at. Open `test.md` in the panel after a rendering change — that is the one thing `verify:client` cannot cover.
+
 ## Known limitations
 
 - **Writes go through a custom Remote, not `workspaceFiles`**: `workspaceFiles` has no mutation API, so `mdLive/writeText` supplies one (see [Write path](#write-path)). Saving needs a *live* Session, because the mode and the root are both resolved from it; a Session that is not live is refused rather than written with a guessed mode. The Session id is client-supplied — a selector, not an authorization, since the Host alone decides the mode and root. That is also the official model: `workspaceFileScope` is a lookup over a client-supplied id, and DSH authenticates the *caller* (an owner Peer behind the Host/Origin fence, plus a process token), not which Session a call belongs to. A Remote handler never sees the Peer, so a plugin cannot tighten this by itself.

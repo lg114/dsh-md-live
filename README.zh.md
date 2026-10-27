@@ -107,6 +107,8 @@ npm run clean
 
 `verify:host` 直接 import 构建好的 Host 半身、用一个假 cordis ctx 调 `apply`：注入了什么、工具的 schema、会拒绝哪些参数、descriptor 的 wire 参数、透传下去的每调用沙箱策略、拒绝信息怎么措辞，以及「注册抛错时只损失工具、不损失插件」。它跑不了真实的 Agent 轮次——那仍然要在浏览器里点。
 
+仓库根目录的两个文件是给浏览器里看的、不属于自动化测试：`test.md` 是一份手动检查清单（frontmatter、三段代码块、一张相对路径图片并顺带验证 `..` 归一化、四类链接、锚点、表格与列表），`test-image.png` 是它引用的图。改完渲染相关代码，在面板里打开 `test.md` 过一遍——这是 `verify:client` 覆盖不到的那部分。
+
 ## 已知限制
 
 - **写入走自定义 Remote，不是 `workspaceFiles`**：`workspaceFiles` 没有修改接口，所以由 `mdLive/writeText` 提供（见[写入链路](#写入链路)）。保存需要**活跃**会话——mode 和可写根都是从它解析出来的；会话不活跃就明确拒绝，而不是拿猜的 mode 去写。Session id 由客户端提供，它只是选择器、不是授权：mode 和根由 Host 决定。这同时也是官方模型的现状：`workspaceFileScope` 就是对一个客户端提供的 id 做 lookup，DSH 认证的是**调用方**（Host/Origin 围栏之后的 owner Peer，加进程 token），而不是「这次调用属于哪个会话」。Remote 处理函数拿不到 Peer，所以插件自己没办法收紧这一层。
