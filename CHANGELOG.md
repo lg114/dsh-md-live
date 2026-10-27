@@ -55,6 +55,9 @@ An npm install that cannot collide with the Host's own copy of `@deepseek-ai/dsh
 - `marked`, `dompurify`, `highlight.js` and `katex` moved from `dependencies` to
   `devDependencies`: the Client bundle already inlines them, so an npm install
   no longer copies them into the profile's `node_modules` either.
+- The unused `@deepseek-ai/dsh-fs` peer is gone, and the packages DSH itself
+  supplies (`@deepseek-ai/cordis`, `react`, `react-dom`) are optional peers, so
+  `npm install` no longer tries to resolve them from a registry.
 
 ## [0.9.0] - 2026-10-27
 
