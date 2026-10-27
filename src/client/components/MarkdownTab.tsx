@@ -825,10 +825,11 @@ export function MarkdownTabBody(props: any) {
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return list.files;
-    return list.files.filter((abs) =>
-      relativeTo(list.root || root, abs).toLowerCase().includes(needle),
-    );
+    const base = list.root || root;
+    const files = needle
+      ? list.files.filter((abs) => relativeTo(base, abs).toLowerCase().includes(needle))
+      : list.files;
+    return [...files].sort((a, b) => relativeTo(base, a).localeCompare(relativeTo(base, b)));
   }, [query, list.files, list.root, root]);
 
   // Recent entries point at files that may have been deleted since; while the
