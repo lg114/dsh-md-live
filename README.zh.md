@@ -6,10 +6,10 @@
 
 把 `.md` 开在对话旁边：文件一变就重绘，可以直接编辑保存，还能把选中的段落送进输入框。
 
+[![npm](https://img.shields.io/npm/v/dsh-md-live?style=flat-square&color=cb3837)](https://www.npmjs.com/package/dsh-md-live)
 [![DSH ≥ 0.2.0](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.0-6e56cf?style=flat-square)](#兼容性)
 [![License: MIT](https://img.shields.io/github/license/lg114/dsh-md-live?style=flat-square&color=64748b)](LICENSE)
 [![Client bundle ≈ 900 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20900%20KB-0ea5e9?style=flat-square)](#已知限制)
-[![Last commit](https://img.shields.io/github/last-commit/lg114/dsh-md-live?style=flat-square&color=64748b)](https://github.com/lg114/dsh-md-live/commits/main)
 
 [快速开始](#快速开始) · [特性](#特性) · [使用](#使用) · [工作原理](#工作原理) · [开发](#开发) · [更新日志](CHANGELOG.md) · [English](README.md)
 
@@ -20,20 +20,27 @@
 ## 快速开始
 
 ```bash
+dsh plugin --profile web add dsh-md-live
+```
+
+重启 harness 后刷新页面。只刷新页面不够：Host 半身是在 `dsh web` 启动时组合的，所以最好在服务停止时安装，装完再启动；或者在装完后把服务停掉重开。`package.json` 里的 `dsh.client` 声明会让 Host 自动把 `lib/client.cjs` 挂成这个包的客户端半身，不需要额外的 patch 行。
+
+然后在右侧栏顶部点 `+`，在指南里选 **md-live**，再挑一个工作区里的 `.md`。
+
+> **依赖**：DSH ≥ 0.2.0。发布包里 Host 和 Client 两半都是构建好的，安装时不需要 Node.js 工具链；React 由 DSH 的浏览器模块表提供。
+
+### 从源码安装
+
+```bash
 git clone https://github.com/lg114/dsh-md-live.git
 cd dsh-md-live
 npm install
 npm run build
 
-# 装进 web profile
 dsh plugin --profile web add .
 ```
 
-重启 harness 后刷新页面。`package.json` 里的 `dsh.client` 声明会让 Host 自动把 `lib/client.cjs` 挂成这个包的客户端半身，不需要额外的 patch 行。
-
-然后在右侧栏顶部点 `+`，在指南里选 **md-live**，再挑一个工作区里的 `.md`。
-
-> **依赖**：DSH ≥ 0.2.0；构建需要 Node.js ≥ 18。React 由 DSH 的浏览器模块表提供，不随包发布。
+构建需要 Node.js ≥ 18。
 
 ## 特性
 
@@ -181,7 +188,7 @@ Host（lib/index.js）
 | DSH | ≥ 0.2.0 —— `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`；写入 Remote 依赖 `typert`；文案依赖 `locale` |
 | 沙箱服务 | 组合里有 `sessions`、`sandboxPolicy` 时写入链路会读它们；没有 `sandboxPolicy`（纯 `fs-local`）时不传策略，保持后端原有行为 |
 | 桌面动作 | `remote.session.openWorkspacePath` / `canOpenWorkspacePath`；Host 没有桌面可打开时按钮会自动隐藏 |
-| `preview_md` | `@deepseek-ai/dsh-tools`，锁定到 Host 自带的 `0.2.1-rc.2`；加载不到时只警告并跳过这个工具 |
+| `preview_md` | 只需要 `tools` 服务 —— 工具是普通注册定义，不会往 profile 里装任何 Host 包 |
 | 数学公式 | `katex` 0.16，直接引它的压缩版——客户端产物故意不压缩，引未压缩入口体积会翻倍 |
 | 构建 | Node.js ≥ 18 |
 | 运行时 | React ≥ 18，由 DSH 的浏览器模块表提供，不打包进产物 |

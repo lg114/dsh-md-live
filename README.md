@@ -6,10 +6,10 @@
 
 Open a `.md` beside the conversation: it redraws itself as the file changes, can be edited and saved in place, and turns a selected paragraph into a quote in the composer.
 
+[![npm](https://img.shields.io/npm/v/dsh-md-live?style=flat-square&color=cb3837)](https://www.npmjs.com/package/dsh-md-live)
 [![DSH ≥ 0.2.0](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.0-6e56cf?style=flat-square)](#compatibility)
 [![License: MIT](https://img.shields.io/github/license/lg114/dsh-md-live?style=flat-square&color=64748b)](LICENSE)
 [![Client bundle ≈ 900 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20900%20KB-0ea5e9?style=flat-square)](#known-limitations)
-[![Last commit](https://img.shields.io/github/last-commit/lg114/dsh-md-live?style=flat-square&color=64748b)](https://github.com/lg114/dsh-md-live/commits/main)
 
 [Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Development](#development) · [Changelog](CHANGELOG.md) · [中文](README.zh.md)
 
@@ -20,20 +20,27 @@ Open a `.md` beside the conversation: it redraws itself as the file changes, can
 ## Quick start
 
 ```bash
+dsh plugin --profile web add dsh-md-live
+```
+
+Restart the harness and reload the page. Reloading the page alone is not enough: the Host half is composed when `dsh web` boots, so install with the server stopped, or stop and start it afterwards. The `dsh.client` declaration in `package.json` makes the Host serve `lib/client.cjs` as this package's Client half automatically — no extra patch row is needed.
+
+Then click `+` at the top of the right sidebar, pick **md-live**, and choose a `.md` from the workspace.
+
+> **Requires** DSH ≥ 0.2.0. The published tarball ships both halves already built, so installing needs no Node.js toolchain; React comes from DSH's browser module table.
+
+### From source
+
+```bash
 git clone https://github.com/lg114/dsh-md-live.git
 cd dsh-md-live
 npm install
 npm run build
 
-# install into the web profile
 dsh plugin --profile web add .
 ```
 
-Restart the harness and reload the page. The `dsh.client` declaration in `package.json` makes the Host serve `lib/client.cjs` as this package's Client half automatically — no extra patch row is needed.
-
-Then click `+` at the top of the right sidebar, pick **md-live**, and choose a `.md` from the workspace.
-
-> **Requires** DSH ≥ 0.2.0; building needs Node.js ≥ 18. React comes from DSH's browser module table, not from this package.
+Building needs Node.js ≥ 18.
 
 ## Features
 
@@ -181,7 +188,7 @@ Two items are deliberately absent, both for the same reason: every reader pays f
 | DSH | ≥ 0.2.0 — `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`; `typert` for the write Remote; `locale` for the copy |
 | Sandbox services | The write path reads `sessions` and `sandboxPolicy` when the composition has them; without `sandboxPolicy` (plain `fs-local`) it passes no policy and keeps the backend's own behaviour |
 | Desktop actions | `remote.session.openWorkspacePath` / `canOpenWorkspacePath`; the buttons hide themselves when the Host has no desktop to open them on |
-| `preview_md` | `@deepseek-ai/dsh-tools`, pinned to the Host's own `0.2.1-rc.2`; the tool is skipped with a warning when the package cannot be loaded |
+| `preview_md` | The `tools` service only — the tool is a plain registry definition, so no Host package is installed into the profile |
 | Math | `katex` 0.16; its minified build is imported directly, because the client bundle is deliberately not minified and the unminified entry is twice the size |
 | Build | Node.js ≥ 18 |
 | Runtime | React ≥ 18, supplied by DSH's browser module table and not bundled |

@@ -34,6 +34,28 @@ Reading a document and asking about a paragraph, without leaving the panel.
   the real service does, so parameterised copy is exercised rather than merely
   looked up.
 
+## [0.9.1] - 2026-10-27
+
+An npm install that cannot collide with the Host's own copy of `@deepseek-ai/dsh-tools`.
+
+### Fixed
+
+- Installing from npm no longer breaks every tool call in the running Host. The
+  Host half imported `@deepseek-ai/dsh-tools` for `defineTool()`, so pnpm wrote a
+  second copy of that package into the profile; the profile uses a hoisted
+  `node_modules` layout, and `TOOL_RUNTIME_SCHEDULER` is a module-local
+  `Symbol`, so a tool call prepared through the other copy could not find the
+  tool runtime — every call in the Session ended with "Cannot read properties of
+  undefined (reading 'prepare')" and the turn with `UNKNOWN`. `preview_md` is
+  now a plain registry definition, its argument checks live in `execute`, and
+  the package no longer depends on `@deepseek-ai/dsh-tools`.
+
+### Changed
+
+- `marked`, `dompurify`, `highlight.js` and `katex` moved from `dependencies` to
+  `devDependencies`: the Client bundle already inlines them, so an npm install
+  no longer copies them into the profile's `node_modules` either.
+
 ## [0.9.0] - 2026-10-27
 
 An editor, and every write fenced by the right policy, in the reader's language.
@@ -326,6 +348,7 @@ Host → Client event bridge, and the panel had no entry point.
 - Initial plugin scaffold: a `main`-slot Markdown preview panel with edit /
   preview modes, TOC, theme overrides and a Host-side file watcher.
 
+[0.9.1]: https://github.com/lg114/dsh-md-live/releases/tag/v0.9.1
 [0.9.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.9.0
 [0.8.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.8.0
 [0.7.0]: https://github.com/lg114/dsh-md-live/releases/tag/v0.7.0

@@ -52,7 +52,7 @@ export function apply(ctx: any): void {
   });
 
   ctx.inject(['tools'], (toolsCtx: any) => {
-    void registerPreviewTool(toolsCtx);
+    registerPreviewTool(toolsCtx);
   });
 }
 
@@ -84,12 +84,67 @@ function registerRemoteService(ctx: any): void {
 }
 
 /**
- * Build and register the tool.
+ * The Agent-facing tool, exactly as the registry takes it.
  *
- * The package is imported dynamically and every failure is swallowed: a plugin
- * whose Host half throws does not load, and losing the tab because an optional
- * tool could not be built would be a bad trade. A missing or mismatched
- * `@deepseek-ai/dsh-tools` therefore costs the tool and nothing else.
+ * Deliberately a plain definition instead of `defineTool()` from
+ * `@deepseek-ai/dsh-tools`. That package would be a dependency of a plugin
+ * installed from npm, and the profile's hoisted `node_modules` layout then
+ * holds a second copy of the Host's own `@deepseek-ai/dsh-tools`.
+ * `TOOL_RUNTIME_SCHEDULER` is a module-local `Symbol`, not `Symbol.for`, so a
+ * tool call prepared through the wrong copy cannot find the tool runtime and
+ * every call in the Session dies with `Cannot read properties of undefined
+ * (reading 'prepare')`. The fields below are the shape `defineTool()` returns
+ * for this spec; its argument validation moved into `execute`.
+ */
+const previewTool = {
+  name: 'preview_md',
+  description:
+    'Open a Markdown file in the md-live panel on the right, so the user can read it. ' +
+    'Use it when the user asks to see, open, or show a Markdown document. ' +
+    'Read-only: it never modifies the file.',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Markdown file to show. A relative path is resolved against the Session workspace.',
+      },
+    },
+    required: ['path'],
+  },
+  output: {
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: {
+          type: 'string',
+          description: 'The path handed to the panel, unchanged.',
+        },
+      },
+      required: ['path'],
+    },
+    render: (_args: any, value: any) => [
+      { type: 'text', text: `已请求在 md-live 面板中打开 ${value.path}` },
+    ],
+  },
+  async execute(args: any) {
+    const path = typeof args?.path === 'string' ? args.path.trim() : '';
+    if (!path) throw new Error('preview_md 需要一个文件路径');
+    if (!/\.(md|markdown|mdx)$/i.test(path)) {
+      throw new Error(`preview_md 只能打开 Markdown 文件：${path}`);
+    }
+    // The panel resolves and reads it; the tool only carries the request.
+    return { path };
+  },
+};
+
+/**
+ * Register the tool.
+ *
+ * Every failure is swallowed: a plugin whose Host half throws does not load,
+ * and losing the tab because an optional tool could not be registered would be
+ * a bad trade.
  *
  * The tool resolves nothing. The panel already knows the Session's workspace
  * root and the Host's view of it, and a second resolution here would be a
@@ -98,50 +153,9 @@ function registerRemoteService(ctx: any): void {
  *
  * @param ctx - Host context whose `tools` service receives the definition.
  */
-async function registerPreviewTool(ctx: any): Promise<void> {
+function registerPreviewTool(ctx: any): void {
   try {
-    const { defineTool } = await import('@deepseek-ai/dsh-tools');
-    ctx.tools.register(
-      defineTool({
-        name: 'preview_md',
-        description:
-          'Open a Markdown file in the md-live panel on the right, so the user can read it. ' +
-          'Use it when the user asks to see, open, or show a Markdown document. ' +
-          'Read-only: it never modifies the file.',
-        parameters: {
-          path: {
-            type: 'string',
-            required: true,
-            description: 'Markdown file to show. A relative path is resolved against the Session workspace.',
-          },
-        },
-        output: {
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              path: {
-                type: 'string',
-                required: true,
-                description: 'The path handed to the panel, unchanged.',
-              },
-            },
-          },
-          render: (_args: any, value: any) => [
-            { type: 'text', text: `已请求在 md-live 面板中打开 ${value.path}` },
-          ],
-        },
-        async execute(args: any) {
-          const path = typeof args?.path === 'string' ? args.path.trim() : '';
-          if (!path) throw new Error('preview_md 需要一个文件路径');
-          if (!/\.(md|markdown|mdx)$/i.test(path)) {
-            throw new Error(`preview_md 只能打开 Markdown 文件：${path}`);
-          }
-          // The panel resolves and reads it; the tool only carries the request.
-          return { path };
-        },
-      }),
-    );
+    ctx.tools.register(previewTool);
   } catch (err) {
     console.warn('[dsh-md-live] preview_md 未注册：', err);
   }
