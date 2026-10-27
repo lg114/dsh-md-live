@@ -852,3 +852,25 @@
   gap: 6px;
   padding-top: 4px;
 }
+
+/* Image zoom overlay: click an image to see it at full size. */
+
+.md-live-zoom-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  cursor: zoom-out;
+  overflow: auto;
+  padding: 24px;
+}
+
+.md-live-zoom-image {
+  max-width: none;
+  max-height: none;
+  cursor: default;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}

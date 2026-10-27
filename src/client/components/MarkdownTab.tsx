@@ -392,6 +392,7 @@ export function MarkdownTabBody(props: any) {
   const [editVersion, setEditVersion] = useState('');
   const [saving, setSaving] = useState(false);
   const [showStale, setShowStale] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const dirtyRef = useRef(false);
@@ -782,7 +783,16 @@ export function MarkdownTabBody(props: any) {
   // page, or open a bare `#anchor` in a new tab.
   const onPreviewClick = useCallback(
     (event: any) => {
-      const anchor = (event.target as HTMLElement | null)?.closest?.('a');
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      // Image click: open zoom overlay.
+      const img = target.closest?.('img') as HTMLImageElement | null;
+      if (img && img.src) {
+        event.preventDefault();
+        setZoomedImage(img.src);
+        return;
+      }
+      const anchor = target.closest?.('a');
       if (!anchor) return;
       const href = anchor.getAttribute('href') ?? '';
       if (!href) return;
@@ -803,10 +813,10 @@ export function MarkdownTabBody(props: any) {
       // A scheme we do not own (and not a Windows drive): leave it alone.
       if (/^[a-z][a-z\d+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) return;
       event.preventDefault();
-      const target = resolveDocPath(path, href);
-      if (!target) return;
-      if (isMarkdownPath(target)) pick(target);
-      else void api?.openPath?.(target);
+      const docTarget = resolveDocPath(path, href);
+      if (!docTarget) return;
+      if (isMarkdownPath(docTarget)) pick(docTarget);
+      else void api?.openPath?.(docTarget);
     },
     [api, path, pick, scrollToHeading],
   );
@@ -1272,6 +1282,21 @@ export function MarkdownTabBody(props: any) {
               <button className="md-live-btn md-live-btn-primary" onClick={forceSave}>{t('stale.overwrite')}</button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {zoomedImage ? (
+        <div
+          className="md-live-zoom-overlay"
+          onClick={() => setZoomedImage(null)}
+          role="dialog"
+          aria-label="Image zoom"
+        >
+          <img
+            className="md-live-zoom-image"
+            src={zoomedImage}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       ) : null}
     </div>
