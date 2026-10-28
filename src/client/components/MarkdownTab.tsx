@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  assignHeadingIdsAndExtractTOC,
   decorateCodeBlocks,
-  extractTOC,
   isMarkdownPath,
   renderMarkdown,
   renderMathWithin,
@@ -9,7 +9,6 @@ import {
   resolveImageUrls,
   sanitizeHtml,
   splitFrontmatter,
-  withHeadingIds,
   highlightWithin,
   type TOCItem,
 } from '../utils/markdown';
@@ -67,13 +66,21 @@ export function MarkdownTabBody(props: any) {
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const [canOpen, setCanOpen] = useState(false);
   const [activeId, setActiveId] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [diskChanged, setDiskChanged] = useState(false);
+  const [eol, setEol] = useState<'crlf' | 'lf'>('lf');
+  const [encoding, setEncoding] = useState<'utf-8' | 'unknown'>('utf-8');
 
   const previewRef = useRef<HTMLDivElement | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const dirtyRef = useRef(false);
+  const readTokenRef = useRef(0);
+  const versionRef = useRef(version);
+  versionRef.current = version;
 
   const load = useCallback(
-    async (signal?: AbortSignal) => {
+    async (opts?: { signal?: AbortSignal; isRefresh?: boolean }) => {
+      const { signal, isRefresh } = opts ?? {};
       if (!path || !api) return;
       if (!sessionId) {
         setStatus('error');
@@ -81,22 +88,32 @@ export function MarkdownTabBody(props: any) {
         return;
       }
       const own = signal ?? new AbortController().signal;
-      setStatus('loading');
+      const token = ++readTokenRef.current;
+
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setStatus('loading');
+      }
       try {
         const result = await api.readText(sessionId, path, own);
-        if (own.aborted) return;
+        if (own.aborted || token !== readTokenRef.current) return;
         if (dirtyRef.current) {
           setVersion(result.version);
         } else {
-          setContent(result.content);
+          setContent((prev) => (prev === result.content ? prev : result.content));
           setVersion(result.version);
         }
+        setEol(result.eol);
+        setEncoding(result.encoding);
         setError('');
         setStatus('ready');
       } catch (err: any) {
-        if (own.aborted || err?.name === 'AbortError') return;
+        if (own.aborted || err?.name === 'AbortError' || token !== readTokenRef.current) return;
         setError(String(err?.message ?? err));
         setStatus('error');
+      } finally {
+        if (token === readTokenRef.current) setRefreshing(false);
       }
     },
     [api, sessionId, path, t],
@@ -120,12 +137,18 @@ export function MarkdownTabBody(props: any) {
     t,
     content,
     version,
+    eol,
+    encoding,
     onSaved: (newContent, newVersion) => {
       setContent(newContent);
       setVersion(newVersion);
+      setDiskChanged(false);
     },
     onError: setError,
-    onReload: () => void load(),
+    onReload: () => {
+      setDiskChanged(false);
+      void load({ isRefresh: true });
+    },
   });
 
   dirtyRef.current = editor.isDirty;
@@ -147,15 +170,15 @@ export function MarkdownTabBody(props: any) {
   const shownPath = path ? relativeTo(picker.list.root || root, path) : '';
 
   const doc = useMemo(() => splitFrontmatter(content), [content]);
-  const toc = useMemo<TOCItem[]>(() => (doc.body ? extractTOC(doc.body) : []), [doc.body]);
   const base = typeof document !== 'undefined' ? document.baseURI : '';
-  const html = useMemo(
-    () =>
-      doc.body
-        ? sanitizeHtml(resolveImageUrls(withHeadingIds(renderMarkdown(doc.body), toc), path, base))
-        : '',
-    [doc.body, toc, path, base],
-  );
+  const rendered = useMemo(() => {
+    if (!doc.body) return { html: '', toc: [] as TOCItem[] };
+    const raw = renderMarkdown(doc.body);
+    const withUrls = resolveImageUrls(raw, path, base);
+    const clean = sanitizeHtml(withUrls);
+    return assignHeadingIdsAndExtractTOC(clean);
+  }, [doc.body, path, base]);
+  const { html, toc } = rendered;
 
   const quote = useQuote({
     api,
@@ -171,7 +194,7 @@ export function MarkdownTabBody(props: any) {
   useEffect(() => {
     if (!path) return;
     const ac = new AbortController();
-    void load(ac.signal);
+    void load({ signal: ac.signal });
     return () => ac.abort();
   }, [path, load]);
 
@@ -180,6 +203,7 @@ export function MarkdownTabBody(props: any) {
     editor.setEditDraft('');
     editor.setEditVersion('');
     editor.setShowStale(false);
+    setDiskChanged(false);
   }, [path]);
 
   useEffect(() => {
@@ -190,13 +214,24 @@ export function MarkdownTabBody(props: any) {
     }
     const ac = new AbortController();
     setLive('connecting');
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       try {
         for await (const frame of api.watch(sessionId, path, ac.signal)) {
           if (ac.signal.aborted) return;
           setLive('live');
-          if (frame && frame.kind === 'change' && !dirtyRef.current) {
-            void load(ac.signal);
+          if (!frame || frame.kind !== 'change') continue;
+          const frameVersion = frame.change?.version;
+          if (frameVersion && frameVersion === versionRef.current) continue;
+          if (dirtyRef.current) {
+            setDiskChanged(true);
+            continue;
+          }
+          if (!debounceTimer) {
+            debounceTimer = setTimeout(() => {
+              debounceTimer = null;
+              void load({ signal: ac.signal, isRefresh: true });
+            }, 120);
           }
         }
         if (!ac.signal.aborted) setLive('unavailable');
@@ -204,7 +239,10 @@ export function MarkdownTabBody(props: any) {
         if (!ac.signal.aborted) setLive('unavailable');
       }
     })();
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [api, sessionId, path, load]);
 
   useEffect(() => {
@@ -228,12 +266,14 @@ export function MarkdownTabBody(props: any) {
 
   useEffect(() => {
     if (status !== 'ready') return;
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      highlightWithin(previewRef.current);
-      renderMathWithin(previewRef.current);
+      if (cancelled) return;
       decorateCodeBlocks(previewRef.current, t);
+      void highlightWithin(previewRef.current);
+      void renderMathWithin(previewRef.current);
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelled = true; cancelAnimationFrame(frame); };
   }, [html, status, t]);
 
   const scrollToHeading = useCallback((id: string) => {
@@ -241,7 +281,8 @@ export function MarkdownTabBody(props: any) {
     if (!preview) return;
     const el = preview.querySelector(`[id="${escapeAttr(id)}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === 'function') {
-      (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      (el as HTMLElement).scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
     }
   }, []);
 
@@ -249,32 +290,60 @@ export function MarkdownTabBody(props: any) {
     if (status !== 'ready' || toc.length === 0) return;
     const preview = previewRef.current;
     if (!preview) return;
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      const headings = Array.from(
-        preview.querySelectorAll('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]'),
-      ) as HTMLElement[];
-      if (headings.length === 0) return;
-      const edge = preview.getBoundingClientRect().top + 8;
-      let current = headings[0].id;
-      for (const heading of headings) {
-        if (heading.getBoundingClientRect().top <= edge) current = heading.id;
-        else break;
-      }
-      setActiveId((prev) => (prev === current ? prev : current));
-    };
-    const onScroll = () => {
-      if (frame !== 0) return;
-      if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(measure);
-      else measure();
-    };
-    preview.addEventListener('scroll', onScroll, { passive: true });
-    measure();
-    return () => {
-      preview.removeEventListener('scroll', onScroll);
-      if (frame !== 0 && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
-    };
+    const headings = Array.from(
+      preview.querySelectorAll('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]'),
+    ) as HTMLElement[];
+    if (headings.length === 0) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      let frame = 0;
+      const measure = () => {
+        frame = 0;
+        const edge = preview.getBoundingClientRect().top + 8;
+        let current = headings[0].id;
+        for (const heading of headings) {
+          if (heading.getBoundingClientRect().top <= edge) current = heading.id;
+          else break;
+        }
+        setActiveId((prev) => (prev === current ? prev : current));
+      };
+      const onScroll = () => {
+        if (frame !== 0) return;
+        if (typeof requestAnimationFrame === 'function') frame = requestAnimationFrame(measure);
+        else measure();
+      };
+      preview.addEventListener('scroll', onScroll, { passive: true });
+      measure();
+      return () => {
+        preview.removeEventListener('scroll', onScroll);
+        if (frame !== 0 && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+      };
+    }
+    const visibleIds = new Set<string>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).id;
+          if (entry.isIntersecting) visibleIds.add(id);
+          else visibleIds.delete(id);
+        }
+        if (visibleIds.size === 0) return;
+        let topmost = headings[0].id;
+        for (const heading of headings) {
+          if (visibleIds.has(heading.id)) {
+            topmost = heading.id;
+            break;
+          }
+        }
+        setActiveId((prev) => (prev === topmost ? prev : topmost));
+      },
+      {
+        root: preview,
+        rootMargin: '-8px 0px -80% 0px',
+        threshold: 0,
+      },
+    );
+    for (const heading of headings) observer.observe(heading);
+    return () => observer.disconnect();
   }, [status, toc, html]);
 
   useEffect(() => {
@@ -343,6 +412,11 @@ export function MarkdownTabBody(props: any) {
   return (
     <div className="md-live-panel">
       <div className="md-live-header">
+        {refreshing ? (
+          <div className="md-live-progress" aria-hidden="true">
+            <div className="md-live-progress-bar" />
+          </div>
+        ) : null}
         {path ? (
           <button
             className="md-live-back"
@@ -431,13 +505,13 @@ export function MarkdownTabBody(props: any) {
             {live === 'unavailable' ? (
               <button
                 className="md-live-btn"
-                onClick={() => void load()}
+                onClick={() => void load({ isRefresh: true })}
                 title={t('doc.refreshTitle')}
               >
                 {t('doc.refresh')}
               </button>
             ) : null}
-            {api?.writeText && status === 'ready' ? (
+            {api?.writeText && status === 'ready' && encoding === 'utf-8' ? (
               editor.editMode ? (
                 <>
                   <button
@@ -507,6 +581,36 @@ export function MarkdownTabBody(props: any) {
           <div className="md-live-status">{t('doc.loading')}</div>
         ) : editor.editMode ? (
           <div className="md-live-editor-wrap">
+            {diskChanged ? (
+              <div className="md-live-disk-banner">
+                <span>{t('edit.diskChanged')}</span>
+                <button
+                  className="md-live-btn md-live-btn-primary"
+                  onClick={() => { setDiskChanged(false); void load({ isRefresh: true }); }}
+                >
+                  {t('stale.reload')}
+                </button>
+              </div>
+            ) : null}
+            {editor.showRestore ? (
+              <div className="md-live-disk-banner">
+                <span>{t('edit.restoreDraft')}</span>
+                <div className="md-live-disk-banner-actions">
+                  <button
+                    className="md-live-btn md-live-btn-primary"
+                    onClick={editor.restoreDraft}
+                  >
+                    {t('edit.restore')}
+                  </button>
+                  <button
+                    className="md-live-btn"
+                    onClick={editor.discardDraft}
+                  >
+                    {t('edit.discardDraft')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {error ? (
               <div className="md-live-editor-error">{error}</div>
             ) : null}
@@ -515,6 +619,7 @@ export function MarkdownTabBody(props: any) {
               value={editor.editDraft}
               onChange={(e) => { editor.setEditDraft(e.target.value); if (error) setError(''); }}
               spellCheck={false}
+              aria-label={t('edit.textareaLabel')}
             />
           </div>
         ) : (
@@ -536,6 +641,9 @@ export function MarkdownTabBody(props: any) {
               ref={previewRef}
               style={readingVars(reading)}
             >
+              {encoding !== 'utf-8' ? (
+                <div className="md-live-encoding-notice">{t('edit.notUtf8')}</div>
+              ) : null}
               {doc.meta ? (
                 <details className="md-live-frontmatter">
                   <summary>
@@ -560,7 +668,7 @@ export function MarkdownTabBody(props: any) {
         onOverwrite={editor.forceSave}
         t={t}
       />
-      <ZoomOverlay src={zoomedImage} onClose={() => setZoomedImage(null)} />
+      <ZoomOverlay src={zoomedImage} onClose={() => setZoomedImage(null)} t={t} />
       <QuotePill
         quote={quote.quote}
         notice={quote.quoteNotice}

@@ -1,11 +1,15 @@
 /**
  * Host-side Remote service for md-live write operations.
  *
- * Extends `TypertRemoteService` so the Gateway discovers it through the same
- * mechanism as the official `workspaceFiles` service. The `@Remote` decorator
- * is replaced by a manually placed marker on the prototype — the decorator
- * requires TC39 Stage 3 decorator support in the build pipeline, and the Host
- * half is compiled with plain `tsc` targeting ES2022 / NodeNext.
+ * Extends an inlined `TypertRemoteService` so the Gateway discovers it through
+ * the same mechanism as the official `workspaceFiles` service. The base class
+ * is inlined to avoid a pinned dependency on `@deepseek-ai/dsh-typert-protocol`
+ * that would duplicate in the profile when DSH upgrades.
+ *
+ * The `@Remote` decorator is replaced by a manually placed marker on the
+ * prototype — the decorator requires TC39 Stage 3 decorator support in the
+ * build pipeline, and the Host half is compiled with plain `tsc` targeting
+ * ES2022 / NodeNext.
  *
  * The marker key and shape match what `addMarkerInitializer` + `mark` produce
  * in `dsh-typert-protocol`: a frozen `{ version: 1, methods: [...] }` object
@@ -22,10 +26,25 @@
  * launched from — including files in the Session's own workspace whenever the
  * server was started elsewhere.
  */
-import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import * as nodePath from 'path';
 
 const REMOTE_METHOD_DESCRIPTOR = '@deepseek-ai/dsh-typert-protocol/remote-methods';
+
+/**
+ * Inlined base class for Typert Remote services.
+ *
+ * The original lives in `@deepseek-ai/dsh-typert-protocol`, but pinning that
+ * package causes a duplicate copy in the profile when DSH upgrades. The base
+ * class is simple enough to inline: it just registers the service instance
+ * with the context under the given namespace.
+ */
+class TypertRemoteService {
+  constructor(ctx: any, protected namespace: string) {
+    if (ctx && typeof ctx.reflect?.provide === 'function') {
+      ctx.reflect.provide(namespace, this);
+    }
+  }
+}
 
 const MARKDOWN_EXT_RE = /\.(md|markdown|mdx)$/i;
 

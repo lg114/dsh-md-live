@@ -39,6 +39,12 @@ export const zh = {
   'edit.saveTitle': '保存 (Ctrl+S)',
   'edit.noChange': '无更改',
   'edit.discard': '有未保存的更改，确定放弃吗？',
+  'edit.diskChanged': '磁盘文件已更新',
+  'edit.notUtf8': '文件不是 UTF-8 编码，以只读方式显示',
+  'edit.restoreDraft': '发现未保存的草稿，是否恢复？',
+  'edit.restore': '恢复',
+  'edit.discardDraft': '放弃',
+  'edit.textareaLabel': 'Markdown 源文件编辑器',
 
   'settings.fontSize': '字号',
   'settings.lineHeight': '行距',
@@ -106,6 +112,8 @@ export const zh = {
   'quote.unavailable': '当前版本拿不到输入框',
   'quote.chips': '草稿里有文件引用，替换会丢掉它们，已取消',
 
+  'zoom.label': '图片放大',
+
   'stale.title': '文件已被外部修改',
   'stale.body': '其他程序或 Agent 已修改了这个文件。您可以覆盖它或重新加载。',
   'stale.reload': '重新加载',
@@ -148,6 +156,12 @@ export const en: Record<LocaleKey, string> = {
   'edit.saveTitle': 'Save (Ctrl+S)',
   'edit.noChange': 'No changes',
   'edit.discard': 'Discard the unsaved changes?',
+  'edit.diskChanged': 'The file changed on disk',
+  'edit.notUtf8': 'The file is not UTF-8; shown read-only',
+  'edit.restoreDraft': 'An unsaved draft was found. Restore it?',
+  'edit.restore': 'Restore',
+  'edit.discardDraft': 'Discard',
+  'edit.textareaLabel': 'Markdown source editor',
 
   'settings.fontSize': 'Text size',
   'settings.lineHeight': 'Line height',
@@ -214,6 +228,8 @@ export const en: Record<LocaleKey, string> = {
   'quote.noSession': 'That session is not in the foreground',
   'quote.unavailable': 'The composer cannot be reached in this build',
   'quote.chips': 'The draft holds file references; inserting would drop them, so nothing was changed',
+
+  'zoom.label': 'Image zoom',
 
   'stale.title': 'The file changed on disk',
   'stale.body': 'Another program or the Agent changed this file. Overwrite it, or reload and keep their version.',

@@ -27,12 +27,89 @@ Reading a document and asking about a paragraph, without leaving the panel.
   the value traced to the reading context — property access on a service the
   plugin did not declare throws `cannot get property … without inject`, and a
   service only reachable through a Session scope is exactly that case.
+- **Code splitting**: KaTeX (372 KB) and 27 highlight.js language definitions
+  (227 KB) are now loaded as separate chunks via `require.async`, only when the
+  document carries math or code blocks. The entry bundle drops from about 918 KB
+  to about 313 KB (66% reduction). Chunks are registered with
+  `__ModuleLoader__.load({ id, chunk, factory })` and materialized on demand.
+  `engines.dsh` is now `>=0.2.1-rc.2`, which is the first release to support
+  chunk loading.
+- **Draft persistence**: the editor saves drafts to `localStorage` with a 300ms
+  debounce, keyed by file path. A file with a saved draft shows a restore prompt
+  on open; the reader can restore the draft or discard it. The draft is cleared
+  on successful save.
+- **IntersectionObserver for TOC**: the outline now tracks which heading is in
+  view through IntersectionObserver instead of scroll events, with a scroll-based
+  fallback for environments without observer support. The observer watches all
+  heading elements and updates the TOC highlight as they enter and leave the
+  viewport.
+- **EOL and encoding preservation**: `readText` now detects whether a file uses
+  CRLF or LF line endings and whether it is valid UTF-8. The editor normalizes
+  to LF internally and converts back to the original EOL on save, so a CRLF file
+  stays CRLF. Non-UTF-8 files show an encoding notice banner.
 
 ### Changed
 
+- **Preview no longer unmounts on background refresh.** `load()` used to call
+  `setStatus('loading')` on every reload, which unmounted the preview DOM and
+  lost scroll position, TOC highlight, and editor focus. Background reloads now
+  set a `refreshing` boolean instead, shown as a thin progress bar under the
+  header. The watch handler debounces frames by 120 ms (non-resetting, so
+  frequent writes do not keep postponing the reload), skips reloads when the
+  version matches, guards against stale responses with an incrementing token,
+  and sets a `diskChanged` flag instead of auto-applying when the editor is
+  dirty — the editor shows a "磁盘已更新" / "Disk updated" banner with a reload
+  button.
+- **TOC anchors are now extracted from the rendered DOM**, not from the source
+  Markdown. The previous implementation used a line regex on the source for
+  `extractTOC` and positional HTML replacement for `withHeadingIds`, which broke
+  the 1:1 assumption for setext headings, `# comments` inside code fences,
+  headings inside blockquotes, and raw HTML headings. A single DOMParser pass
+  after sanitization now walks `h1`–`h6`, generates slugs, deduplicates, and
+  builds the TOC from the same source of truth that the preview renders.
+- **Highlight and math caching**: code block highlighting and KaTeX rendering
+  now use bounded LRU caches (256 entries for highlight, 128 for math). The
+  highlight pass skips blocks already marked and blocks over 8KB, so large
+  documents do not stall on syntax coloring. The math cache keys on display mode
+  and TeX source, so repeated expressions render instantly.
+- **Scan deduplication**: the file picker caches scan results for 30 seconds,
+  keyed by session id, workspace root, and skip-dirs rules. Rapid tab switches
+  or settings changes no longer trigger redundant workspace walks.
+- **Follow-writes default**: the "follow Agent writes" checkbox now defaults to
+  off instead of on. The rationale is that automatic file opens are surprising
+  behaviour; a reader who wants them can opt in explicitly. The checkbox still
+  takes effect immediately and is remembered per browser.
+- **Host localization**: the Host-side tool messages are now in English
+  (`"Opened ${path} in the md-live panel"`, `"preview_md requires a file path"`,
+  etc.) instead of Chinese. The client-side UI still reads the locale
+  dictionaries.
+- **Sanitization fallback**: when DOMPurify cannot be constructed, the sanitizer
+  now escapes HTML entities (`&`, `<`, `>`, `"`, `'`) instead of stripping tags
+  with a regex. The fail-closed path renders the document as plain text rather
+  than risking malformed HTML.
+- **Bundle minification**: the client bundles are now minified with legal
+  comments preserved at EOF. The entry bundle dropped from 322 KB to 176 KB
+  (45%), the KaTeX chunk from 373 KB to 265 KB (29%), and the highlight.js
+  chunk from 227 KB to 115 KB (49%). Total bundle size is 556 KB instead of
+  922 KB (40% reduction).
+- **Accessibility**: the zoom overlay now handles Escape to close, carries
+  `aria-modal="true"` and `tabIndex={-1}`, and its label is translatable. The
+  editor textarea has an `aria-label`. Scroll-to-heading respects
+  `prefers-reduced-motion`.
+- **Package metadata**: `package.json` now carries `repository`, `homepage`, and
+  `bugs` fields pointing to the GitHub repository. The `files` list includes
+  `CHANGELOG.md`.
 - `verify:client`'s locale stub now substitutes `{name}` placeholders the way
   the real service does, so parameterised copy is exercised rather than merely
   looked up.
+
+### Removed
+
+- **TypertRemoteService inlining**: the `MdLiveRemote` class no longer extends
+  `TypertRemoteService` from `@deepseek-ai/dsh-typert-protocol`. The base class
+  is inlined (a constructor that calls `ctx.reflect.provide(namespace, this)`),
+  and the Remote method descriptor is placed on the prototype manually. The
+  `@deepseek-ai/dsh-typert-protocol` dependency is removed from `package.json`.
 
 ## [0.9.1] - 2026-10-27
 

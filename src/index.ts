@@ -125,14 +125,14 @@ const previewTool = {
       required: ['path'],
     },
     render: (_args: any, value: any) => [
-      { type: 'text', text: `已请求在 md-live 面板中打开 ${value.path}` },
+      { type: 'text', text: `Opened ${value.path} in the md-live panel` },
     ],
   },
   async execute(args: any) {
     const path = typeof args?.path === 'string' ? args.path.trim() : '';
-    if (!path) throw new Error('preview_md 需要一个文件路径');
+    if (!path) throw new Error('preview_md requires a file path');
     if (!/\.(md|markdown|mdx)$/i.test(path)) {
-      throw new Error(`preview_md 只能打开 Markdown 文件：${path}`);
+      throw new Error(`preview_md can only open Markdown files: ${path}`);
     }
     // The panel resolves and reads it; the tool only carries the request.
     return { path };

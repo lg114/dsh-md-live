@@ -38,6 +38,7 @@ const { createRoot } = require('react-dom/client');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'client.cjs'), 'utf-8');
 const registered = [];
+const chunkFactories = {};
 const sandbox = {
   console: { log() {}, error: (...a) => console.error('[bundle]', ...a), warn() {} },
   document: dom.window.document,
@@ -57,17 +58,38 @@ const sandbox = {
 };
 sandbox.window = dom.window;
 sandbox.globalThis = sandbox;
-dom.window.__ModuleLoader__ = { load: (row) => registered.push(row) };
+dom.window.__ModuleLoader__ = {
+  load: (row) => {
+    registered.push(row);
+    if (row.chunk) chunkFactories[row.chunk] = row;
+  },
+};
 sandbox.__ModuleLoader__ = dom.window.__ModuleLoader__;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'client.js' });
 
+// Load chunk files so require.async can resolve them.
+for (const chunkName of ['katex', 'hljs-languages']) {
+  const chunkSource = fs.readFileSync(
+    path.join(__dirname, '..', 'lib', `client.${chunkName}.js`),
+    'utf-8',
+  );
+  vm.runInContext(chunkSource, sandbox, { filename: `client.${chunkName}.js` });
+}
+
 const row = registered[0];
 if (!row || row.id !== 'dsh-md-live') throw new Error('module id wrong');
-const exportsObj = row.factory((id) => {
+const moduleRequire = (id) => {
   if (id === 'react' || id === 'react/jsx-runtime') return require(id);
   throw new Error('unexpected require: ' + id);
-});
+};
+moduleRequire.async = async (chunkPath) => {
+  const name = chunkPath.replace(/^\.\//, '').replace(/\.js$/, '').replace(/^client\./, '');
+  const chunk = chunkFactories[name];
+  if (!chunk) throw new Error('unknown chunk: ' + chunkPath);
+  return chunk.factory(moduleRequire);
+};
+const exportsObj = row.factory(moduleRequire);
 
 let fileText = '# 标题一\n\n正文段落\n\n## 小节\n\n- a\n- b\n';
 let watchController = null;
@@ -725,16 +747,21 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     followBox.click();
     await wait(60);
   }
-  console.log('56) the checkbox turns following off:',
-    Boolean(followBox) && dom.window.localStorage.getItem('dsh-md-live.follow-writes.v1') === 'false');
+  console.log('56) the checkbox turns following on:',
+    Boolean(followBox) && dom.window.localStorage.getItem('dsh-md-live.follow-writes.v1') === 'true');
 
   followQueue.push({
     type: 'event',
-    event: { type: 'tool/call', data: { callId: 'c4', name: 'write', arguments: JSON.stringify({ file_path: 'docs/off.md' }) } },
+    event: { type: 'tool/call', data: { callId: 'c4', name: 'write', arguments: JSON.stringify({ file_path: 'docs/on.md' }) } },
   });
   followQueue.push({ type: 'event', event: { type: 'tool/result', data: { message: { source: { callId: 'c4' } } } } });
   await wait(160);
-  console.log('57) a write after opting out opens nothing:', !openedPaths().includes(ROOT + '/docs/off.md'));
+  console.log('57) a write after opting in opens the file:', openedPaths().includes(ROOT + '/docs/on.md'));
+
+  if (followBox) {
+    followBox.click();
+    await wait(60);
+  }
 
   // An explicit request is not automatic behaviour, so the checkbox does not
   // silence it: the reader asked for this one.

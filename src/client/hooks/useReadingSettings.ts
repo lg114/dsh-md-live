@@ -18,7 +18,7 @@ export function useReadingSettings(t: Translate) {
     () => readStored<unknown>(TOC_STORAGE_KEY) === true,
   );
   const [followWrites, setFollowWrites] = useState<boolean>(
-    () => readStored<unknown>(FOLLOW_STORAGE_KEY) !== false,
+    () => readStored<unknown>(FOLLOW_STORAGE_KEY) === true,
   );
 
   const updateReading = useCallback((patch: Partial<ReadingSettings>) => {

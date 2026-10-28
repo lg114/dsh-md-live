@@ -28,6 +28,7 @@
 /* Header */
 
 .md-live-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -37,6 +38,28 @@
   height: 38px;
   padding: 0 6px 0 16px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+}
+
+/* Thin indeterminate progress bar under the header during background refresh */
+.md-live-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+}
+
+.md-live-progress-bar {
+  width: 40%;
+  height: 100%;
+  background: var(--dsw-alias-brand-primary, #4d6bfe);
+  animation: md-live-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes md-live-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
 }
 
 /* Back to the file list: a chevron before the title, the way an editor's
@@ -816,6 +839,34 @@
   font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: 1.5;
   border-bottom: 0.5px solid var(--dsw-alias-state-error-border, rgba(217, 45, 32, 0.2));
+}
+
+.md-live-disk-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 20px;
+  background: var(--dsw-alias-state-warning-bg, rgba(255, 170, 0, 0.08));
+  border-bottom: 0.5px solid var(--dsw-alias-state-warning-border, rgba(255, 170, 0, 0.2));
+  color: var(--dsw-alias-label-primary, #1f2328);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}
+
+.md-live-disk-banner-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.md-live-encoding-notice {
+  max-width: var(--md-live-width, none);
+  margin: 0 auto 12px;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-state-warning-bg, rgba(255, 170, 0, 0.08));
+  border: 0.5px solid var(--dsw-alias-state-warning-border, rgba(255, 170, 0, 0.2));
+  color: var(--dsw-alias-label-secondary, #656d76);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
 }
 
 /* Save button states */

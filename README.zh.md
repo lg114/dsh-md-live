@@ -7,9 +7,9 @@
 把 `.md` 开在对话旁边：文件一变就重绘，可以直接编辑保存，还能把选中的段落送进输入框。
 
 [![npm](https://img.shields.io/npm/v/dsh-md-live?style=flat-square&color=cb3837)](https://www.npmjs.com/package/dsh-md-live)
-[![DSH ≥ 0.2.0](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.0-6e56cf?style=flat-square)](#兼容性)
+[![DSH ≥ 0.2.1-rc.2](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-6e56cf?style=flat-square)](#兼容性)
 [![License: MIT](https://img.shields.io/github/license/lg114/dsh-md-live?style=flat-square&color=64748b)](LICENSE)
-[![Client bundle ≈ 900 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20900%20KB-0ea5e9?style=flat-square)](#已知限制)
+[![Client bundle ≈ 313 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20313%20KB-0ea5e9?style=flat-square)](#已知限制)
 
 [快速开始](#快速开始) · [特性](#特性) · [使用](#使用) · [工作原理](#工作原理) · [开发](#开发) · [更新日志](CHANGELOG.md) · [English](README.md)
 
@@ -27,7 +27,7 @@ dsh plugin --profile web add dsh-md-live
 
 然后在右侧栏顶部点 `+`，在指南里选 **md-live**，再挑一个工作区里的 `.md`。
 
-> **依赖**：DSH ≥ 0.2.0。发布包里 Host 和 Client 两半都是构建好的，安装时不需要 Node.js 工具链；React 由 DSH 的浏览器模块表提供。
+> **依赖**：DSH ≥ 0.2.1-rc.2。发布包里 Host 和 Client 两半都是构建好的，安装时不需要 Node.js 工具链；React 由 DSH 的浏览器模块表提供。
 
 ### 从源码安装
 
@@ -169,23 +169,21 @@ Host（lib/index.js）
 - **没有 Mermaid**：```` ```mermaid ```` 保持为带复制按钮的高亮代码块，不是图——测量数据见[路线图](#路线图)。
 - **这版还不认识的拒绝 code 会原样显示**，也就是 Host 的中文：面板只翻译自己认识的 code，其余回退到 Host 自己的句子。
 - **公式是 MathML，不是 KaTeX 的 HTML**：交给浏览器自带的排版引擎，所以不需要字体和样式表，但个别结构的观感比 KaTeX 的排版朴素一些。
-- **体积**：client bundle 约 900 KB（marked + DOMPurify + KaTeX + 27 种语言的高亮定义），其中 KaTeX 占约 380 KB。
+- **体积**：入口 bundle 约 313 KB（marked + DOMPurify + hljs 核心）。KaTeX（372 KB）和 27 种 highlight.js 语言定义（227 KB）作为独立 chunk 按需加载——只在文档包含公式或代码块时才加载。
 
 ## 路线图
 
 - [x] 写入 API（自定义 Typert Remote `mdLive/writeText`，带版本校验，受会话沙箱策略约束）
 - [x] 编辑器（textarea + 脏标记 + 保存 + 版本冲突弹窗）
+- [x] 代码拆分（KaTeX 和 highlight.js 语言定义通过 `require.async` 作为独立 chunk 按需加载）
 
-有两项故意不在列表里，原因相同：成本由每个读者承担，收益只落在少数用到它的文档上。
-
-- **高亮语言按需懒加载**在这里做不了。客户端产物一个 module id 只对应一个文件，经 `__ModuleLoader__.load({ id, factory })` 加载，没有地方放第二个 chunk。改成精简语言表也量过——27 种砍到 15 种省 133 KB，代价是丢掉 c、cpp、csharp、php、ruby、swift、kotlin、lua、perl、r、ini、scss。
-- **Mermaid** 是量出来的，不是猜的：打包后增加 11.2 MB（未压缩）、5.0 MB（压缩）。它的 ESM 入口只有 54 KB，是因为内部拆成了动态 import，而这种模块格式必须把它们全部内联。所以 ```` ```mermaid ```` 围栏保持为带复制按钮的高亮代码块——对一个 5 MB 的引擎来说，这个交换是划算的。
+有一项故意不在列表里：**Mermaid** 是量出来的，不是猜的：打包后增加 11.2 MB（未压缩）、5.0 MB（压缩）。它的 ESM 入口只有 54 KB，是因为内部拆成了动态 import，而这种模块格式必须把它们全部内联。所以 ```` ```mermaid ```` 围栏保持为带复制按钮的高亮代码块——对一个 5 MB 的引擎来说，这个交换是划算的。即使支持 chunk 加载，npm 发布包仍然会携带完整的约 11 MB，每个用户都会下载，无论是否使用 Mermaid。
 
 ## 兼容性
 
 | 组成 | 要求 |
 | --- | --- |
-| DSH | ≥ 0.2.0 —— `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`；写入 Remote 依赖 `typert`；文案依赖 `locale` |
+| DSH | ≥ 0.2.1-rc.2 —— `sidebarRightTabs`、`sidebar.right.pane.tab`、`remote.workspaceFiles`；写入 Remote 依赖 `typert`；文案依赖 `locale`；chunk 加载依赖 `require.async` |
 | 沙箱服务 | 组合里有 `sessions`、`sandboxPolicy` 时写入链路会读它们；没有 `sandboxPolicy`（纯 `fs-local`）时不传策略，保持后端原有行为 |
 | 桌面动作 | `remote.session.openWorkspacePath` / `canOpenWorkspacePath`；Host 没有桌面可打开时按钮会自动隐藏 |
 | `preview_md` | 只需要 `tools` 服务 —— 工具是普通注册定义，不会往 profile 里装任何 Host 包 |

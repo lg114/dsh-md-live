@@ -337,9 +337,21 @@ export function apply(ctx: any) {
           : data instanceof ArrayBuffer
             ? new Uint8Array(data)
             : new Uint8Array(data ?? []);
+      let encoding: 'utf-8' | 'unknown' = 'utf-8';
+      let raw = '';
+      try {
+        raw = new TextDecoder('utf-8', { fatal: true }).decode(view);
+      } catch {
+        raw = new TextDecoder('utf-8').decode(view);
+        encoding = 'unknown';
+      }
+      const eol: 'crlf' | 'lf' = raw.includes('\r\n') ? 'crlf' : 'lf';
+      const content = raw.replace(/\r\n/g, '\n');
       return {
-        content: new TextDecoder('utf-8').decode(view),
+        content,
         version: typeof bytes?.version === 'string' ? bytes.version : '',
+        eol,
+        encoding,
       };
     },
     listMarkdown: async (

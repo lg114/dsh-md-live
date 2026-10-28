@@ -1,57 +1,9 @@
 import { marked } from 'marked';
 import DOMPurifyImport from 'dompurify';
 import hljs from 'highlight.js/lib/core';
-// KaTeX ships an unminified bundle (620 KB) and a minified one (275 KB). The
-// client build does not minify — the artifact stays readable on purpose — so the
-// already-minified file is imported directly instead of being expanded and
-// re-emitted. `src/client/**` is outside the `tsc` project, so the missing types
-// for this deep path never reach the type checker.
-// @ts-expect-error - the package ships no types for its minified entry
-import katex from 'katex/dist/katex.min.js';
 import { fallbackT, type Translate } from '../locales';
 
-// Only the languages a Markdown document realistically carries. The full
-// highlight.js bundle is ~1.6 MB; this keeps the plugin bundle an order of
-// magnitude smaller. An unregistered language simply renders unstyled.
-import bash from 'highlight.js/lib/languages/bash';
-import c from 'highlight.js/lib/languages/c';
-import cpp from 'highlight.js/lib/languages/cpp';
-import csharp from 'highlight.js/lib/languages/csharp';
-import css from 'highlight.js/lib/languages/css';
-import diff from 'highlight.js/lib/languages/diff';
-import go from 'highlight.js/lib/languages/go';
-import ini from 'highlight.js/lib/languages/ini';
-import java from 'highlight.js/lib/languages/java';
-import javascript from 'highlight.js/lib/languages/javascript';
-import json from 'highlight.js/lib/languages/json';
-import kotlin from 'highlight.js/lib/languages/kotlin';
-import lua from 'highlight.js/lib/languages/lua';
-import markdown from 'highlight.js/lib/languages/markdown';
-import perl from 'highlight.js/lib/languages/perl';
-import php from 'highlight.js/lib/languages/php';
-import python from 'highlight.js/lib/languages/python';
-import r from 'highlight.js/lib/languages/r';
-import ruby from 'highlight.js/lib/languages/ruby';
-import rust from 'highlight.js/lib/languages/rust';
-import scss from 'highlight.js/lib/languages/scss';
-import shell from 'highlight.js/lib/languages/shell';
-import sql from 'highlight.js/lib/languages/sql';
-import swift from 'highlight.js/lib/languages/swift';
-import typescript from 'highlight.js/lib/languages/typescript';
-import xml from 'highlight.js/lib/languages/xml';
-import yaml from 'highlight.js/lib/languages/yaml';
-
-const LANGUAGES: Record<string, any> = {
-  bash, sh: shell, shell, c, cpp, 'c++': cpp, csharp, 'c#': csharp, css, diff,
-  go, ini, toml: ini, java, javascript, js: javascript, jsx: javascript,
-  json, kotlin, lua, markdown, md: markdown, perl, php, python, py: python,
-  r, ruby, rust, scss, sql, swift, typescript, ts: typescript, tsx: typescript,
-  html: xml, xml, vue: xml, yaml, yml: yaml,
-};
-
-for (const [name, definition] of Object.entries(LANGUAGES)) {
-  hljs.registerLanguage(name, definition);
-}
+declare const require: { (id: string): any; async(id: string): Promise<any> };
 
 /**
  * Resolve the DOMPurify instance across module interop shapes.
@@ -94,17 +46,20 @@ function resolvePurifier(): { sanitize: (html: string, config?: any) => string }
   return cachedPurifier;
 }
 
-/** Last-resort strip when DOMPurify cannot be constructed. */
-function stripUnsafe(html: string): string {
+/**
+ * Escape HTML as plain text when DOMPurify cannot be constructed.
+ *
+ * This is fail-closed: rather than attempt a regex-based strip that might miss
+ * an attack vector, the entire content is escaped so nothing dangerous can
+ * execute. The reader sees the raw markup instead of a compromised page.
+ */
+function escapeAsText(html: string): string {
   return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/\son\w+\s*=\s*[^\s>"']+/gi, '')
-    .replace(/\s(href|src)\s*=\s*"javascript:[^"]*"/gi, ' $1="#"')
-    .replace(/\s(href|src)\s*=\s*'javascript:[^']*'/gi, ' $1="#"')
-    .replace(/\s(href|src)\s*=\s*javascript:[^\s>"']*/gi, ' $1="#"');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // GitHub-flavoured Markdown. The `highlight` option marked once took was
@@ -180,41 +135,29 @@ marked.use({
   ],
 });
 
+let katexChunkPromise: Promise<{ renderMathWithin: (root: HTMLElement) => void }> | null = null;
+
 /**
  * Draw every math placeholder inside a rendered document.
  *
- * Runs on the live DOM, after sanitising, for the same reason highlighting
- * does: the markup is generated here rather than trusted from the file, so it
- * never passes through the sanitiser at all.
- *
- * Output is MathML rather than KaTeX's HTML. The HTML rendering depends on
- * KaTeX's own web fonts — without them the metrics are wrong and glyphs
- * overlap — and those fonts are several hundred kilobytes that the plugin has
- * no way to serve. MathML is drawn by the browser itself, so it needs neither
- * the fonts nor the stylesheet.
+ * KaTeX lives in a separate chunk (`client.katex.js`) loaded on demand: most
+ * documents carry no math at all, and the 380 KB library should not block the
+ * initial render for them. The first call kicks off the load; subsequent calls
+ * reuse the same promise and patch the DOM as soon as the chunk arrives.
  *
  * @param root - the container holding the rendered Markdown.
  */
-export function renderMathWithin(root: HTMLElement | null): void {
+export async function renderMathWithin(root: HTMLElement | null): Promise<void> {
   if (!root) return;
-  for (const node of Array.from(root.querySelectorAll('.md-live-math'))) {
-    const element = node as HTMLElement;
-    if (element.dataset.rendered === '1') continue;
-    element.dataset.rendered = '1';
-    const tex = element.getAttribute('data-tex') ?? '';
-    const displayMode = element.getAttribute('data-display') === '1';
-    try {
-      katex.render(tex, element, {
-        displayMode,
-        output: 'mathml',
-        throwOnError: false,
-        strict: false,
-      });
-    } catch {
-      // An expression KaTeX cannot parse stays visible as source rather than
-      // disappearing from the document.
-      element.textContent = tex;
-    }
+  if (!root.querySelector('.md-live-math:not([data-rendered="1"])')) return;
+  if (!katexChunkPromise) {
+    katexChunkPromise = require.async('./client.katex.js');
+  }
+  try {
+    const chunk = await katexChunkPromise;
+    chunk.renderMathWithin(root);
+  } catch (err) {
+    console.error('[dsh-md-live] KaTeX chunk load failed:', err);
   }
 }
 
@@ -496,54 +439,73 @@ export function resolveImageUrls(html: string, docPath: string, base: string): s
   );
 }
 
-export function extractTOC(content: string): TOCItem[] {
-  const headings: TOCItem[] = [];
-  const used = new Map<string, number>();
-  const lines = content.split('\n');
-  const headingRegex = /^(#{1,6})\s+(.+)$/;
-
-  for (const line of lines) {
-    const match = line.match(headingRegex);
-    if (match) {
-      const level = match[1].length;
-      const text = match[2].trim();
-      const slug = text
-        .toLowerCase()
-        .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
-        .replace(/\s+/g, '-') || 'section';
-
-      // Duplicate headings must still get distinct anchors, or the TOC would
-      // scroll every entry to the first one.
-      const seen = used.get(slug) ?? 0;
-      used.set(slug, seen + 1);
-      const id = seen === 0 ? slug : `${slug}-${seen}`;
-
-      headings.push({ level, text, id });
-    }
-  }
-
-  return headings;
+/**
+ * Generate a URL-friendly slug from heading text.
+ *
+ * Lowercases, strips characters that are not word characters, CJK ideographs,
+ * or whitespace, then collapses whitespace runs into single hyphens. The
+ * result matches the convention GitHub and other renderers use for heading
+ * anchors, so cross-references written by hand keep working.
+ *
+ * @param text - the heading's visible text.
+ * @returns a slug suitable for use as an HTML id.
+ */
+function slugifyHeading(text: string): string {
+  const slug = text
+    .toLowerCase()
+    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || 'section';
 }
 
 /**
- * Attach the TOC's anchors to the rendered headings.
+ * Assign ids to every heading in sanitized HTML and extract the TOC.
  *
- * `marked` emits `<h1>`…`<h6>` without ids, so the TOC could not scroll to
- * anything. Headings appear in the same order in the source and in the output,
- * which lets the two lists line up positionally.
+ * A single DOMParser pass replaces the old two-step approach (line-regex
+ * extraction on source + positional HTML replacement on output). That approach
+ * assumed "source heading count == rendered heading count, same order", which
+ * broke for setext headings, code-fence comments that look like headings,
+ * blockquote headings, and raw HTML headings. Walking the rendered DOM is the
+ * only source of truth that cannot disagree with what the reader sees.
  *
- * @param html - rendered Markdown.
- * @param headings - the same document's TOC entries.
- * @returns html whose headings carry the TOC's ids.
+ * Headings that already carry an id (from raw HTML in the source) keep it;
+ * the id is still recorded in the dedup map so a later generated slug that
+ * collides with it gets a suffix.
+ *
+ * @param html - sanitized rendered Markdown.
+ * @returns the HTML with ids assigned and the TOC items extracted.
  */
-export function withHeadingIds(html: string, headings: TOCItem[]): string {
-  let index = 0;
-  return html.replace(/<h([1-6])([^>]*)>/g, (whole, level: string, attrs: string) => {
-    const heading = headings[index];
-    index += 1;
-    if (!heading || /\sid=/.test(attrs)) return whole;
-    return `<h${level}${attrs} id="${heading.id}">`;
-  });
+export function assignHeadingIdsAndExtractTOC(html: string): { html: string; toc: TOCItem[] } {
+  if (typeof window === 'undefined' || typeof window.DOMParser === 'undefined') return { html, toc: [] };
+  const parser = new window.DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6');
+  const toc: TOCItem[] = [];
+  const used = new Map<string, number>();
+
+  for (const node of headings) {
+    const el = node as HTMLElement;
+    const level = Number(el.tagName.charAt(1));
+    const text = (el.textContent ?? '').trim();
+    const existing = el.getAttribute('id');
+    let id: string;
+    if (existing) {
+      id = existing;
+      const seen = used.get(id) ?? 0;
+      used.set(id, seen + 1);
+    } else {
+      const slug = slugifyHeading(text);
+      const seen = used.get(slug) ?? 0;
+      used.set(slug, seen + 1);
+      id = seen === 0 ? slug : `${slug}-${seen}`;
+      el.setAttribute('id', id);
+    }
+    toc.push({ level, text, id });
+  }
+
+  return { html: doc.body.innerHTML, toc };
 }
 
 /**
@@ -560,7 +522,7 @@ export function withHeadingIds(html: string, headings: TOCItem[]): string {
 export function sanitizeHtml(html: string): string {
   if (typeof window === 'undefined') return html;
   const purifier = resolvePurifier();
-  if (!purifier) return stripUnsafe(html);
+  if (!purifier) return escapeAsText(html);
   return purifier.sanitize(html, {
     USE_PROFILES: { html: true },
     ADD_ATTR: ['id', 'target', 'rel'],
@@ -573,22 +535,90 @@ export function sanitizeHtml(html: string): string {
   });
 }
 
+let hljsChunkLoaded = false;
+let hljsChunkPromise: Promise<any> | null = null;
+
+/**
+ * A bounded LRU cache for expensive render results.
+ *
+ * Highlighting and math rendering are pure functions of their input, so the
+ * same block need not be processed twice. The cache is bounded to prevent
+ * unbounded memory growth in long sessions; when full, the least-recently-used
+ * entry is evicted.
+ */
+class BoundedCache<V> {
+  private map = new Map<string, V>();
+  constructor(private max: number) {}
+  get(key: string): V | undefined {
+    const value = this.map.get(key);
+    if (value === undefined) return undefined;
+    this.map.delete(key);
+    this.map.set(key, value);
+    return value;
+  }
+  set(key: string, value: V): void {
+    if (this.map.has(key)) this.map.delete(key);
+    else if (this.map.size >= this.max) {
+      const oldest = this.map.keys().next().value;
+      if (oldest !== undefined) this.map.delete(oldest);
+    }
+    this.map.set(key, value);
+  }
+}
+
+const highlightCache = new BoundedCache<string>(256);
+
 /**
  * Highlight every code block inside a rendered preview.
  *
- * marked emits plain `<pre><code class="language-x">`; highlighting is applied
- * to the live DOM afterwards, so re-rendering the HTML re-highlights naturally
- * and the Markdown string itself stays cacheable.
+ * Language definitions live in a separate chunk (`client.hljs-languages.js`)
+ * loaded on demand: the 231 KB of grammars is only needed when the document
+ * carries code blocks, and the core highlight.js engine in the entry bundle
+ * is enough to register them once they arrive. The first call kicks off the
+ * load; subsequent calls reuse the same promise.
+ *
+ * Only blocks with an explicit `language-*` class matching a registered
+ * language are highlighted. Unmarked blocks skip auto-detection entirely:
+ * scanning 27 grammars per block is expensive, and a document with dozens of
+ * plain fences would pay that cost on every refresh. Blocks exceeding 8 KB
+ * are also skipped even when declared, since very long inputs rarely benefit
+ * from highlighting and always cost it.
  *
  * @param root - the container holding the rendered Markdown.
  */
-export function highlightWithin(root: HTMLElement | null): void {
+export async function highlightWithin(root: HTMLElement | null): Promise<void> {
   if (!root) return;
-  for (const block of Array.from(root.querySelectorAll('pre code'))) {
+  const blocks = Array.from(root.querySelectorAll('pre code:not([data-highlighted="yes"])'));
+  if (blocks.length === 0) return;
+  if (!hljsChunkLoaded) {
+    if (!hljsChunkPromise) {
+      hljsChunkPromise = require.async('./client.hljs-languages.js').then((chunk: any) => {
+        for (const [name, definition] of Object.entries(chunk.LANGUAGES)) {
+          hljs.registerLanguage(name, definition);
+        }
+        hljsChunkLoaded = true;
+        return chunk;
+      });
+    }
+    await hljsChunkPromise;
+  }
+  for (const block of blocks) {
     const element = block as HTMLElement;
-    if (element.dataset.highlighted === 'yes') continue;
+    const lang = codeLanguage(element);
+    if (!lang) continue;
+    if (!hljs.getLanguage(lang)) continue;
+    const text = element.textContent ?? '';
+    if (text.length > 8192) continue;
+    const cacheKey = `${lang}\0${text}`;
+    const cached = highlightCache.get(cacheKey);
+    if (cached !== undefined) {
+      element.innerHTML = cached;
+      element.dataset.highlighted = 'yes';
+      continue;
+    }
     try {
       hljs.highlightElement(element);
+      highlightCache.set(cacheKey, element.innerHTML);
     } catch (err) {
       console.error('[dsh-md-live] Highlight error:', err);
     }

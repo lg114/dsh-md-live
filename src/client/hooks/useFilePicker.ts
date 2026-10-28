@@ -8,6 +8,7 @@ import {
   SKIP_DIRS_STORAGE_KEY,
   type ListState,
   type MdLiveApi,
+  type MdLiveListing,
   loadRecent,
   loadSkipDirs,
   parseRules,
@@ -15,6 +16,20 @@ import {
   saveSkipDirs,
   writeStored,
 } from '../types';
+
+/** TTL for cached scan results: 30 seconds. */
+const SCAN_CACHE_TTL = 30_000;
+
+interface ScanCacheEntry {
+  result: MdLiveListing;
+  timestamp: number;
+}
+
+const scanCache = new Map<string, ScanCacheEntry>();
+
+function scanCacheKey(sessionId: string, root: string, skipDirs: string[]): string {
+  return `${sessionId}\0${root}\0${skipDirs.join(',')}`;
+}
 
 export function useFilePicker(opts: {
   api: MdLiveApi | undefined;
@@ -47,6 +62,12 @@ export function useFilePicker(opts: {
       setList({ ...EMPTY_LIST, status: 'error', error: t('error.noWorkspacePath') });
       return () => {};
     }
+    const cacheKey = scanCacheKey(sessionId, root, skipDirs);
+    const cached = scanCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < SCAN_CACHE_TTL) {
+      setList({ status: 'ready', ...cached.result });
+      return () => {};
+    }
     const ac = new AbortController();
     setList({ ...EMPTY_LIST, status: 'loading' });
     (async () => {
@@ -62,6 +83,7 @@ export function useFilePicker(opts: {
           },
         );
         if (ac.signal.aborted) return;
+        scanCache.set(cacheKey, { result: found, timestamp: Date.now() });
         setList({ status: 'ready', ...found });
       } catch (err: any) {
         if (ac.signal.aborted || err?.name === 'AbortError') return;
@@ -71,13 +93,16 @@ export function useFilePicker(opts: {
     return () => ac.abort();
   }, [path, api, sessionId, root, skipDirs, t]);
 
-  useEffect(() => scan(), [scan]);
-
   const wasVisible = useRef(false);
+  const hasScanned = useRef(false);
   useEffect(() => {
     const isVisible = tabVisible === true;
-    if (isVisible && !wasVisible.current && !path) {
-      scan();
+    const shouldScan = !path && (isVisible || !hasScanned.current);
+    if (shouldScan) {
+      const cleanup = scan();
+      hasScanned.current = true;
+      wasVisible.current = isVisible;
+      return cleanup;
     }
     wasVisible.current = isVisible;
   }, [tabVisible, path, scan]);

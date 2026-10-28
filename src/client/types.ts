@@ -67,7 +67,12 @@ export const DEFAULT_READING: ReadingSettings = { fontSize: null, lineHeight: nu
 export interface MdLiveApi {
   open: (path: string) => void;
   setDiscardGuard?: (guard: (() => boolean) | null) => void;
-  readText: (sessionId: string, path: string, signal: AbortSignal) => Promise<{ content: string; version: string }>;
+  readText: (sessionId: string, path: string, signal: AbortSignal) => Promise<{
+    content: string;
+    version: string;
+    eol: 'crlf' | 'lf';
+    encoding: 'utf-8' | 'unknown';
+  }>;
   listMarkdown: (
     sessionId: string,
     root: string,

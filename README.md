@@ -7,9 +7,9 @@
 Open a `.md` beside the conversation: it redraws itself as the file changes, can be edited and saved in place, and turns a selected paragraph into a quote in the composer.
 
 [![npm](https://img.shields.io/npm/v/dsh-md-live?style=flat-square&color=cb3837)](https://www.npmjs.com/package/dsh-md-live)
-[![DSH ≥ 0.2.0](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.0-6e56cf?style=flat-square)](#compatibility)
+[![DSH ≥ 0.2.1-rc.2](https://img.shields.io/badge/DSH-%E2%89%A5%200.2.1--rc.2-6e56cf?style=flat-square)](#compatibility)
 [![License: MIT](https://img.shields.io/github/license/lg114/dsh-md-live?style=flat-square&color=64748b)](LICENSE)
-[![Client bundle ≈ 900 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20900%20KB-0ea5e9?style=flat-square)](#known-limitations)
+[![Client bundle ≈ 313 KB](https://img.shields.io/badge/client%20bundle-%E2%89%88%20313%20KB-0ea5e9?style=flat-square)](#known-limitations)
 
 [Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Development](#development) · [Changelog](CHANGELOG.md) · [中文](README.zh.md)
 
@@ -27,7 +27,7 @@ Restart the harness and reload the page. Reloading the page alone is not enough:
 
 Then click `+` at the top of the right sidebar, pick **md-live**, and choose a `.md` from the workspace.
 
-> **Requires** DSH ≥ 0.2.0. The published tarball ships both halves already built, so installing needs no Node.js toolchain; React comes from DSH's browser module table.
+> **Requires** DSH ≥ 0.2.1-rc.2. The published tarball ships both halves already built, so installing needs no Node.js toolchain; React comes from DSH's browser module table.
 
 ### From source
 
@@ -169,23 +169,21 @@ Two files at the repository root are for the browser check rather than for the t
 - **No Mermaid**: a ```` ```mermaid ```` fence stays a highlighted code block with a copy control, not a diagram — see [Roadmap](#roadmap) for the measured cost.
 - **A refusal code this build has not learned yet is shown verbatim**, in the Host's Chinese: the panel translates the codes it knows and falls back to the Host's own sentence otherwise.
 - **Math is MathML, not KaTeX's HTML**: the browser's own renderer draws it, so no fonts or stylesheet are needed, but a few constructs look plainer than KaTeX's typesetting would.
-- **Bundle size**: about 900 KB (marked + DOMPurify + KaTeX + 27 highlight.js language definitions). KaTeX alone is roughly 380 KB of that.
+- **Bundle size**: the entry bundle is about 313 KB (marked + DOMPurify + hljs core). KaTeX (372 KB) and 27 highlight.js language definitions (227 KB) are loaded as separate chunks on demand — only when the document carries math or code blocks.
 
 ## Roadmap
 
 - [x] Write API (custom Typert Remote `mdLive/writeText`, version-checked, fenced by the Session's sandbox policy)
 - [x] Editor (textarea with dirty tracking, save, and a stale-version dialog)
+- [x] Code splitting (KaTeX and highlight.js languages loaded as separate chunks via `require.async`)
 
-Two items are deliberately absent, both for the same reason: every reader pays for them, and only the few documents that use them benefit.
-
-- **Lazy-loading the highlight.js languages** cannot work here. A Client bundle is one file per module id, loaded through `__ModuleLoader__.load({ id, factory })`, so there is nowhere to put a second chunk. Trimming the list was measured too — 27 languages down to 15 saves 133 KB and costs c, cpp, csharp, php, ruby, swift, kotlin, lua, perl, r, ini and scss.
-- **Mermaid** was measured rather than guessed: bundling it adds 11.2 MB unminified and 5.0 MB minified. Its ESM entry is only 54 KB because it splits itself into dynamic imports, and this module format has to inline every one of them. A ```` ```mermaid ```` fence therefore stays a highlighted code block with a copy control, which is a fair trade for a 5 MB engine.
+One item is deliberately absent: **Mermaid** was measured rather than guessed: bundling it adds 11.2 MB unminified and 5.0 MB minified. Its ESM entry is only 54 KB because it splits itself into dynamic imports, and this module format has to inline every one of them. A ```` ```mermaid ```` fence therefore stays a highlighted code block with a copy control, which is a fair trade for a 5 MB engine. Even with chunk loading, the npm tarball would still carry the full ~11 MB, which every user would download regardless of whether they use Mermaid.
 
 ## Compatibility
 
 | Piece | Requirement |
 | --- | --- |
-| DSH | ≥ 0.2.0 — `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`; `typert` for the write Remote; `locale` for the copy |
+| DSH | ≥ 0.2.1-rc.2 — `sidebarRightTabs`, `sidebar.right.pane.tab`, `remote.workspaceFiles`; `typert` for the write Remote; `locale` for the copy; `require.async` for chunk loading |
 | Sandbox services | The write path reads `sessions` and `sandboxPolicy` when the composition has them; without `sandboxPolicy` (plain `fs-local`) it passes no policy and keeps the backend's own behaviour |
 | Desktop actions | `remote.session.openWorkspacePath` / `canOpenWorkspacePath`; the buttons hide themselves when the Host has no desktop to open them on |
 | `preview_md` | The `tools` service only — the tool is a plain registry definition, so no Host package is installed into the profile |
