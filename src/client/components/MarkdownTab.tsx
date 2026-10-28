@@ -228,9 +228,12 @@ export function MarkdownTabBody(props: any) {
 
   useEffect(() => {
     if (status !== 'ready') return;
-    highlightWithin(previewRef.current);
-    renderMathWithin(previewRef.current);
-    decorateCodeBlocks(previewRef.current, t);
+    const frame = requestAnimationFrame(() => {
+      highlightWithin(previewRef.current);
+      renderMathWithin(previewRef.current);
+      decorateCodeBlocks(previewRef.current, t);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [html, status, t]);
 
   const scrollToHeading = useCallback((id: string) => {

@@ -92,14 +92,17 @@ export function useFilePicker(opts: {
     });
   }, [path]);
 
+  const sorted = useMemo(() => {
+    const base = list.root || root;
+    return [...list.files].sort((a, b) => relativeTo(base, a).localeCompare(relativeTo(base, b)));
+  }, [list.files, list.root, root]);
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const base = list.root || root;
-    const files = needle
-      ? list.files.filter((abs) => relativeTo(base, abs).toLowerCase().includes(needle))
-      : list.files;
-    return [...files].sort((a, b) => relativeTo(base, a).localeCompare(relativeTo(base, b)));
-  }, [query, list.files, list.root, root]);
+    return needle
+      ? sorted.filter((abs) => relativeTo(list.root || root, abs).toLowerCase().includes(needle))
+      : sorted;
+  }, [query, sorted, list.root, root]);
 
   const recentVisible = useMemo(() => {
     if (list.status !== 'ready') return recent;
