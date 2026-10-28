@@ -33,29 +33,46 @@ interface FilePickerProps {
   t: Translate;
 }
 
-function fileIcon() {
+function fileBadge() {
   return (
-    <svg className="md-live-picker-file-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path d="M3 1.5h5.5L11 4v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-12A.5.5 0 0 1 3 1.5Z" stroke="currentColor" strokeWidth="1" />
-      <path d="M8.5 1.5V4H11" stroke="currentColor" strokeWidth="1" />
-    </svg>
+    <span className="md-live-picker-badge" aria-hidden="true">MD</span>
   );
 }
 
-function renderRow(abs: string, shown: string, keyPrefix: string, onPick: (path: string) => void) {
-  const dir = dirname(shown);
+function renderRow(abs: string, name: string, keyPrefix: string, onPick: (path: string) => void) {
   return (
     <button
       key={keyPrefix + abs}
       className="md-live-picker-item"
       onClick={() => onPick(abs)}
-      title={shown}
+      title={name}
     >
-      {fileIcon()}
-      {dir ? <span className="md-live-picker-dir">{dir}/</span> : null}
-      <span className="md-live-picker-name">{basename(shown)}</span>
+      {fileBadge()}
+      <span className="md-live-picker-name">{name}</span>
     </button>
   );
+}
+
+interface FileGroup {
+  dir: string;
+  files: { abs: string; name: string }[];
+}
+
+function groupByDir(
+  items: { abs: string; shown: string }[],
+): FileGroup[] {
+  const groups: FileGroup[] = [];
+  for (const { abs, shown } of items) {
+    const dir = dirname(shown);
+    const name = basename(shown);
+    const last = groups[groups.length - 1];
+    if (last && last.dir === dir) {
+      last.files.push({ abs, name });
+    } else {
+      groups.push({ dir, files: [{ abs, name }] });
+    }
+  }
+  return groups;
 }
 
 export function FilePicker({
@@ -101,15 +118,32 @@ export function FilePicker({
                   ? t('picker.count', { visible: visible.length, total: list.files.length })
                   : t('picker.fileCount', { total: list.files.length })}
             </span>
-            <button
-              className="md-live-btn md-live-picker-refresh"
-              title={t('picker.refreshTitle')}
-              disabled={scanning}
-              onClick={onScan}
-              aria-label={t('picker.refresh')}
-            >
-              {t('picker.refresh')}
-            </button>
+            <div className="md-live-picker-actions">
+              <button
+                className="md-live-btn md-live-icon-btn"
+                title={rulesOpen ? t('picker.rulesClose') : t('picker.rulesOpen')}
+                onClick={() => {
+                  onSetDraft(skipDirs.join('\n'));
+                  onSetRulesOpen(!rulesOpen);
+                }}
+                aria-label={t('picker.rulesOpen')}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M2 3h10M2 7h10M2 11h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button
+                className="md-live-btn md-live-icon-btn"
+                title={t('picker.refreshTitle')}
+                disabled={scanning}
+                onClick={onScan}
+                aria-label={t('picker.refresh')}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M12 7a5 5 0 1 1-1.5-3.5L12 2v3h-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="md-live-search-wrap">
             <svg className="md-live-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -139,6 +173,10 @@ export function FilePicker({
                 const allForRender = recentSet
                   ? visible.filter((abs) => !recentSet.has(abs))
                   : visible;
+                const root = list.root || '';
+                const toShown = (abs: string) => ({ abs, shown: relativeTo(root, abs) });
+                const recentGroups = showRecent ? groupByDir(recentVisible.map(toShown)) : [];
+                const allGroups = groupByDir(allForRender.map(toShown));
                 return (
                   <>
                     {showRecent ? (
@@ -146,19 +184,29 @@ export function FilePicker({
                         <div className="md-live-picker-section md-live-picker-section-recent" role="heading" aria-level={2}>
                           {t('picker.recent')}
                         </div>
-                        {recentVisible.map((abs) =>
-                          renderRow(abs, relativeTo(list.root || root, abs), 'recent:', onPick),
-                        )}
-                        {allForRender.length > 0 ? (
+                        {recentGroups.map((group) => (
+                          <div key={'rg:' + group.dir} className="md-live-picker-group">
+                            {group.dir ? (
+                              <div className="md-live-picker-group-dir">{group.dir}</div>
+                            ) : null}
+                            {group.files.map((f) => renderRow(f.abs, f.name, 'recent:', onPick))}
+                          </div>
+                        ))}
+                        {allGroups.length > 0 ? (
                           <div className="md-live-picker-section md-live-picker-section-all" role="heading" aria-level={2}>
                             {t('picker.all')}
                           </div>
                         ) : null}
                       </>
                     ) : null}
-                    {allForRender.map((abs) =>
-                      renderRow(abs, relativeTo(list.root || root, abs), 'all:', onPick),
-                    )}
+                    {allGroups.map((group) => (
+                      <div key={'ag:' + group.dir} className="md-live-picker-group">
+                        {group.dir ? (
+                          <div className="md-live-picker-group-dir">{group.dir}</div>
+                        ) : null}
+                        {group.files.map((f) => renderRow(f.abs, f.name, 'all:', onPick))}
+                      </div>
+                    ))}
                   </>
                 );
               })()}
@@ -166,66 +214,69 @@ export function FilePicker({
           )}
           {!scanning && (list.truncatedBy || skipDirs.length > 0) ? (
             <div className="md-live-picker-note">
-              <span>
-                {list.truncatedBy
-                  ? truncationNote(list.truncatedBy, list.limits, t)
-                  : skipDirs.length === 0
-                    ? t('picker.rulesAll')
-                    : t('picker.rulesSkipped', { skipped: list.skippedDirs, rules: skipDirs.length })}
-              </span>
-              <button
-                className="md-live-btn"
-                onClick={() => {
-                  onSetDraft(skipDirs.join('\n'));
-                  onSetRulesOpen(!rulesOpen);
-                }}
-              >
-                {rulesOpen ? t('picker.rulesClose') : t('picker.rulesOpen')}
-              </button>
+              {list.truncatedBy
+                ? truncationNote(list.truncatedBy, list.limits, t)
+                : skipDirs.length === 0
+                  ? t('picker.rulesAll')
+                  : t('picker.rulesSkipped', { skipped: list.skippedDirs, rules: skipDirs.length })}
             </div>
           ) : null}
           {rulesOpen ? (
-            <div className="md-live-rules">
-              <textarea
-                className="md-live-rules-input"
-                value={draft}
-                spellCheck={false}
-                placeholder={t('picker.rulesHint')}
-                onChange={(e) => onSetDraft(e.target.value)}
-              />
-              <div className="md-live-rules-actions">
-                <button
-                  className="md-live-btn"
-                  onClick={() => {
-                    const next = parseRules(draft);
-                    onSetSkipDirs(next);
-                    saveSkipDirs(next);
-                    onSetRulesOpen(false);
-                  }}
-                >
-                  {t('picker.rulesSave')}
-                </button>
-                <button
-                  className="md-live-btn"
-                  onClick={() => {
-                    const next = [...DEFAULT_SKIP_DIRS];
-                    onSetDraft(next.join('\n'));
-                    onSetSkipDirs(next);
-                    saveSkipDirs(next);
-                  }}
-                >
-                  {t('picker.rulesRestore')}
-                </button>
-                <button
-                  className="md-live-btn"
-                  onClick={() => {
-                    onSetDraft('');
-                    onSetSkipDirs([]);
-                    saveSkipDirs([]);
-                  }}
-                >
-                  {t('picker.rulesShowAll')}
-                </button>
+            <div className="md-live-dialog-overlay" onClick={() => onSetRulesOpen(false)}>
+              <div className="md-live-rules-dialog" onClick={(e) => e.stopPropagation()}>
+                <div className="md-live-rules-dialog-header">
+                  <span className="md-live-rules-dialog-title">{t('picker.rulesOpen')}</span>
+                  <button
+                    className="md-live-btn md-live-icon-btn"
+                    onClick={() => onSetRulesOpen(false)}
+                    aria-label={t('picker.rulesClose')}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <textarea
+                  className="md-live-rules-input"
+                  value={draft}
+                  spellCheck={false}
+                  placeholder={t('picker.rulesHint')}
+                  onChange={(e) => onSetDraft(e.target.value)}
+                />
+                <div className="md-live-rules-actions">
+                  <button
+                    className="md-live-btn"
+                    onClick={() => {
+                      const next = parseRules(draft);
+                      onSetSkipDirs(next);
+                      saveSkipDirs(next);
+                      onSetRulesOpen(false);
+                    }}
+                  >
+                    {t('picker.rulesSave')}
+                  </button>
+                  <button
+                    className="md-live-btn"
+                    onClick={() => {
+                      const next = [...DEFAULT_SKIP_DIRS];
+                      onSetDraft(next.join('\n'));
+                      onSetSkipDirs(next);
+                      saveSkipDirs(next);
+                    }}
+                  >
+                    {t('picker.rulesRestore')}
+                  </button>
+                  <button
+                    className="md-live-btn"
+                    onClick={() => {
+                      onSetDraft('');
+                      onSetSkipDirs([]);
+                      saveSkipDirs([]);
+                    }}
+                  >
+                    {t('picker.rulesShowAll')}
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}

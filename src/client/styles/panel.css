@@ -583,7 +583,7 @@
 
 .md-live-picker-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 0 8px 8px;
@@ -593,9 +593,22 @@
 
 .md-live-picker-root {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
   min-width: 0;
+  flex: 1;
+}
+
+.md-live-picker-count {
+  flex: none;
+  white-space: nowrap;
+}
+
+.md-live-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
 }
 
 /* The word before the path: the reader should not have to infer what the
@@ -609,10 +622,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.md-live-picker-count {
-  flex: none;
 }
 
 .md-live-picker-list {
@@ -673,22 +682,22 @@
   padding-top: 8px;
   font-size: 13px;
   font-weight: 700;
-  background: var(--dsw-alias-bg-layer-1, transparent);
 }
 
 .md-live-picker-section-all {
-  padding-top: 10px;
-  font-size: 12px;
-  font-weight: 600;
+  padding-top: 16px;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 700;
   border-top: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
 
 .md-live-picker-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
-  padding: 7px 8px;
+  padding: 5px 8px 5px 10px;
   border: 0;
   border-radius: var(--dsw-radius-md, 8px);
   background: transparent;
@@ -696,30 +705,44 @@
   font-size: var(--dsh-code-font-size, 12px);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
-.md-live-picker-file-icon {
+.md-live-picker-badge {
   flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--dsw-alias-label-tertiary, #8b949e);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 16px;
+  border-radius: 3px;
+  background: #4d6bfe;
+  color: #fff;
+  font-family: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
 }
 
 .md-live-picker-item:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
 }
 
-.md-live-picker-item:hover .md-live-picker-file-icon {
-  color: var(--dsw-alias-brand-primary, #4d6bfe);
+.md-live-picker-group {
+  display: flex;
+  flex-direction: column;
 }
 
-.md-live-picker-dir {
-  min-width: 0;
+.md-live-picker-group-dir {
+  padding: 4px 10px 2px;
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  font-family: var(--ds-font-family-code, var(--dsh-font-family-code-default, ui-monospace, monospace));
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary, #8b949e);
 }
 
 .md-live-picker-name {
@@ -732,10 +755,6 @@
 }
 
 .md-live-picker-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   margin-top: 8px;
   padding: 6px 8px 0;
   border-top: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
@@ -744,14 +763,36 @@
   line-height: 1.5;
 }
 
-.md-live-picker-note > span {
-  min-width: 0;
+/* Filter rules dialog */
+
+.md-live-rules-dialog {
+  position: absolute;
+  top: 50px;
+  right: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
+  border-radius: var(--dsw-radius-lg, 12px);
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  box-shadow: 0 6px 24px var(--dsw-alias-shadow-popover, rgba(0, 0, 0, 0.12));
 }
 
-/* Filter rules: the directories the walk leaves out, editable in place */
-.md-live-rules {
-  padding: 8px;
-  border-top: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
+.md-live-rules-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.md-live-rules-dialog-title {
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #1f2328);
 }
 
 .md-live-rules-input {

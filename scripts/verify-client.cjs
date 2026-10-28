@@ -1014,7 +1014,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await wait(300);
   const rootLabel = pickEl.querySelector('.md-live-picker-root-label')?.textContent;
   const rootPath = pickEl.querySelector('.md-live-picker-root-path')?.textContent;
-  console.log('79) the picker labels the workspace root:', rootLabel === '工作区' && rootPath === 'C:/w');
+  console.log('79) the picker labels the workspace root:', rootLabel === '工作区' && rootPath === 'w');
 
   const sections = [...pickEl.querySelectorAll('.md-live-picker-section')];
   console.log('80) the group headings are headings, not rows:',
