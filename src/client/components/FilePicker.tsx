@@ -33,6 +33,15 @@ interface FilePickerProps {
   t: Translate;
 }
 
+function fileIcon() {
+  return (
+    <svg className="md-live-picker-file-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M3 1.5h5.5L11 4v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-12A.5.5 0 0 1 3 1.5Z" stroke="currentColor" strokeWidth="1" />
+      <path d="M8.5 1.5V4H11" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  );
+}
+
 function renderRow(abs: string, shown: string, keyPrefix: string, onPick: (path: string) => void) {
   const dir = dirname(shown);
   return (
@@ -42,6 +51,7 @@ function renderRow(abs: string, shown: string, keyPrefix: string, onPick: (path:
       onClick={() => onPick(abs)}
       title={shown}
     >
+      {fileIcon()}
       {dir ? <span className="md-live-picker-dir">{dir}/</span> : null}
       <span className="md-live-picker-name">{basename(shown)}</span>
     </button>
@@ -78,7 +88,7 @@ export function FilePicker({
               {list.root ? (
                 <>
                   <span className="md-live-picker-root-label">{t('picker.workspaceLabel')}</span>
-                  <span className="md-live-picker-root-path">{list.root}</span>
+                  <span className="md-live-picker-root-path">{basename(list.root)}</span>
                 </>
               ) : (
                 <span className="md-live-picker-root-path">{t('picker.root')}</span>
@@ -89,7 +99,7 @@ export function FilePicker({
                 ? t('picker.scanning')
                 : query.trim()
                   ? t('picker.count', { visible: visible.length, total: list.files.length })
-                  : t('picker.countAll', { total: list.files.length })}
+                  : t('picker.fileCount', { total: list.files.length })}
             </span>
             <button
               className="md-live-btn md-live-picker-refresh"
@@ -101,14 +111,20 @@ export function FilePicker({
               {t('picker.refresh')}
             </button>
           </div>
-          <input
-            className="md-live-search"
-            value={query}
-            spellCheck={false}
-            placeholder={t('picker.search')}
-            aria-label={t('picker.searchAria')}
-            onChange={(e) => onSetQuery(e.target.value)}
-          />
+          <div className="md-live-search-wrap">
+            <svg className="md-live-search-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M9.5 9.5 12.5 12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <input
+              className="md-live-search"
+              value={query}
+              spellCheck={false}
+              placeholder={t('picker.search')}
+              aria-label={t('picker.searchAria')}
+              onChange={(e) => onSetQuery(e.target.value)}
+            />
+          </div>
           {list.files.length === 0 ? (
             <div className="md-live-status">
               {scanning ? t('picker.scanningWhere', { where }) : t('picker.emptyWhere', { where })}
@@ -127,14 +143,14 @@ export function FilePicker({
                   <>
                     {showRecent ? (
                       <>
-                        <div className="md-live-picker-section" role="heading" aria-level={2}>
+                        <div className="md-live-picker-section md-live-picker-section-recent" role="heading" aria-level={2}>
                           {t('picker.recent')}
                         </div>
                         {recentVisible.map((abs) =>
                           renderRow(abs, relativeTo(list.root || root, abs), 'recent:', onPick),
                         )}
                         {allForRender.length > 0 ? (
-                          <div className="md-live-picker-section" role="heading" aria-level={2}>
+                          <div className="md-live-picker-section md-live-picker-section-all" role="heading" aria-level={2}>
                             {t('picker.all')}
                           </div>
                         ) : null}

@@ -600,12 +600,25 @@
 
 /* Search box: the workspace list is long enough to need one. */
 
+.md-live-search-wrap {
+  position: relative;
+  margin: 0 8px 6px;
+}
+
+.md-live-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+  pointer-events: none;
+}
+
 .md-live-search {
   display: block;
   box-sizing: border-box;
-  width: calc(100% - 16px);
-  margin: 0 8px 6px;
-  padding: 5px 8px;
+  width: 100%;
+  padding: 5px 8px 5px 30px;
   border: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.15));
   border-radius: var(--dsw-radius-md, 8px);
   background: var(--dsw-alias-bg-layer-1, transparent);
@@ -623,28 +636,33 @@
   border-color: var(--dsw-alias-brand-primary, #4d6bfe);
 }
 
-/* Section headings inside the picker: a sticky bar, not one more line of the
-   list. They used to share the rows' size and tone, which made "Recently
-   opened" read like a directory in a path. */
+/* Section headings inside the picker: differentiated by weight and spacing. */
+
 .md-live-picker-section {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: 8px 0 2px;
-  padding: 6px 8px 5px;
-  background: var(--dsw-alias-bg-base, transparent);
-  border-bottom: 0.5px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.1));
-  color: var(--dsw-alias-label-secondary, #57606a);
+  padding: 6px 10px 4px;
+  color: var(--dsw-alias-label-secondary, #555d66);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  line-height: 1.4;
-  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.md-live-picker-section-recent {
+  padding-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+}
+
+.md-live-picker-section-all {
+  padding-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-top: 0.5px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
 }
 
 .md-live-picker-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
   width: 100%;
   padding: 7px 8px;
@@ -658,8 +676,19 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.md-live-picker-file-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-tertiary, #8b949e);
+}
+
 .md-live-picker-item:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.md-live-picker-item:hover .md-live-picker-file-icon {
+  color: var(--dsw-alias-brand-primary, #4d6bfe);
 }
 
 .md-live-picker-dir {
