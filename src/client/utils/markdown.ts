@@ -80,6 +80,17 @@ function resolvePurifier(): { sanitize: (html: string, config?: any) => string }
   }
   if (!cachedPurifier && supported(candidate)) cachedPurifier = candidate;
   if (!cachedPurifier && supported(candidate?.default)) cachedPurifier = candidate.default;
+  if (cachedPurifier && typeof cachedPurifier.addHook === 'function') {
+    cachedPurifier.addHook('afterSanitizeAttributes', (node: any) => {
+      if (node.tagName === 'A' && node.hasAttribute('target')) {
+        const existing = node.getAttribute('rel') || '';
+        const tokens = new Set(existing.split(/\s+/).filter(Boolean));
+        tokens.add('noopener');
+        tokens.add('noreferrer');
+        node.setAttribute('rel', Array.from(tokens).join(' '));
+      }
+    });
+  }
   return cachedPurifier;
 }
 
@@ -90,7 +101,10 @@ function stripUnsafe(html: string): string {
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
     .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
     .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/\s(href|src)\s*=\s*"javascript:[^"]*"/gi, ' $1="#"');
+    .replace(/\son\w+\s*=\s*[^\s>"']+/gi, '')
+    .replace(/\s(href|src)\s*=\s*"javascript:[^"]*"/gi, ' $1="#"')
+    .replace(/\s(href|src)\s*=\s*'javascript:[^']*'/gi, ' $1="#"')
+    .replace(/\s(href|src)\s*=\s*javascript:[^\s>"']*/gi, ' $1="#"');
 }
 
 // GitHub-flavoured Markdown. The `highlight` option marked once took was
