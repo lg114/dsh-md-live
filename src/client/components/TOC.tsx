@@ -55,9 +55,9 @@ export const TOC: React.FC<TOCProps> = ({
       </div>
       {collapsed ? null : (
         <nav className="md-live-toc-nav">
-          {items.map((item, index) => (
+          {items.map((item) => (
             <a
-              key={index}
+              key={item.id}
               href={`#${item.id}`}
               className={`md-live-toc-item${item.id === activeId ? ' is-active' : ''}`}
               style={{ paddingLeft: `${(item.level - 1) * 12 + 8}px` }}

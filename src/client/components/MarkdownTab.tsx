@@ -277,6 +277,7 @@ export interface MdLiveApi {
 }
 
 const basename = (p?: string): string => (p ? p.split(/[\\/]/).pop() || p : '');
+const escapeAttr = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 const dirname = (p?: string): string => {
   if (!p) return '';
   const parts = p.split(/[\\/]/);
@@ -614,12 +615,12 @@ export function MarkdownTabBody(props: any) {
     highlightWithin(previewRef.current);
     renderMathWithin(previewRef.current);
     decorateCodeBlocks(previewRef.current, t);
-  }, [html, status]);
+  }, [html, status, t]);
 
   const scrollToHeading = useCallback((id: string) => {
     const preview = previewRef.current;
     if (!preview) return;
-    const el = preview.querySelector(`[id="${id}"]`);
+    const el = preview.querySelector(`[id="${escapeAttr(id)}"]`);
     if (el && typeof (el as HTMLElement).scrollIntoView === 'function') {
       (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
