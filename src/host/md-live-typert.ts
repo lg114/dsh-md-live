@@ -171,7 +171,7 @@ const $remote = createTypertRemoteInfo(
 export const TYPERT = {
   package: 'dsh-md-live',
   face: 'host' as const,
-  schemas: [] as any[],
+  schemas: [] as unknown[],
   invocations: $remote.descriptors,
   model: {
     services: [
@@ -192,10 +192,10 @@ export const TYPERT = {
             jsDoc: '/** Replace one workspace file with UTF-8 text, returning a structured status. */',
           },
         ],
-        types: [] as any[],
+        types: [] as unknown[],
       },
     ],
-    events: [] as any[],
-    objects: [] as any[],
+    events: [] as unknown[],
+    objects: [] as unknown[],
   },
 };

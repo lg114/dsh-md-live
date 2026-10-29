@@ -14,10 +14,19 @@ import {
   markdownPreviewTarget,
   markdownWriteTarget,
   resultCallId,
+  type ToolCallData,
+  type ToolResultData,
 } from './utils/agent-writes';
 import { CLIENT_DESCRIPTORS } from './descriptors.js';
 import { NS, installLocale, t as tr } from './locales';
 import { quoteInsertion } from './utils/quote';
+import type { WatchFrame } from './types';
+
+/** One session event frame from the follow stream. */
+interface SessionEventFrame {
+  type?: string;
+  event?: { type?: string; data?: ToolCallData | ToolResultData };
+}
 
 /** The tab type discriminator `ctx.sidebarRight.openTab` names. */
 const KIND = 'md-live';
@@ -35,6 +44,54 @@ const SCAN_LIMITS: MdLiveScanBudget = { depth: 12, dirs: 1500, files: 2000 };
 
 /** Directory listings in flight at once during a scan. */
 const SCAN_CONCURRENCY = 8;
+
+/** Minimal shape of the DSH client context this plugin touches. */
+interface DshClientContext {
+  sidebarRight?: {
+    mounted?: { getSnapshot(): unknown; subscribe?(fn: () => void): { unsubscribe(): void } | (() => void) | null };
+    openTab(kind: string, opts?: { params?: Record<string, unknown> }): void;
+  };
+  sidebarRightTabs?: {
+    register(spec: {
+      id: string; kind: string; multiple: boolean; priority: string;
+      title: () => string;
+      guide?: { id: string; order: number; title: () => string; description: () => string }[];
+    }): () => void;
+  };
+  layout?: { openRightbar?(...args: unknown[]): void };
+  slots?: {
+    inject(slot: string, factory: () => unknown): () => void;
+    register(spec: Record<string, unknown>, component?: unknown): unknown;
+  };
+  locale?: unknown;
+  sessions?: unknown;
+  remote?: {
+    $mount?(spec: { package: string; descriptors: readonly unknown[] }): unknown;
+    $stream?(spec: { name: string; open: (lifetime: AbortSignal) => unknown; ended: () => Error }): AsyncIterable<{ value: unknown; accept(): void } | unknown>;
+    namespaces?: Map<string, { service?: { writeText?: (...args: unknown[]) => unknown }; writeText?: (...args: unknown[]) => unknown }>;
+    mdLive?: { service?: { writeText?: (...args: unknown[]) => unknown }; writeText?: (...args: unknown[]) => unknown };
+    workspaceFiles?: {
+      readBytes(sessionId: string, path: string, opts: unknown, signal: AbortSignal): unknown;
+      list(sessionId: string, dir: string, signal: AbortSignal): unknown;
+      changes(sessionId: string, path: string, lifetime: AbortSignal): AsyncIterable<{ value: WatchFrame; accept(): void } | WatchFrame>;
+    };
+    session?: {
+      list(opts: unknown): unknown;
+      follow(address: { address: { kind: string; sessionId: string } }, lifetime: AbortSignal): AsyncIterable<{ value: unknown; accept(): void } | unknown>;
+      openWorkspacePath(request: Record<string, unknown>): unknown;
+      canOpenWorkspacePath(): unknown;
+    };
+  };
+  effect(fn: () => (() => void) | void, name: string): void;
+  get?(name: string): unknown;
+}
+
+/** Remote result envelope from the DSH gateway. */
+interface RemoteEnvelope<T> {
+  ok: boolean;
+  value?: T;
+  error?: { message?: string; code?: string };
+}
 
 /**
  * The mounted tab's "you have unsaved edits" question, when a tab is mounted.
@@ -69,16 +126,17 @@ function mayNavigate(): boolean {
  * @returns the decoded value.
  * @throws the Remote failure, so callers report it instead of showing nothing.
  */
-function unwrapRemote<T>(result: any): T {
+function unwrapRemote<T>(result: unknown): T {
   if (result && typeof result === 'object' && 'ok' in result) {
-    if (!result.ok) {
-      const failure = result.error;
+    const envelope = result as RemoteEnvelope<T>;
+    if (!envelope.ok) {
+      const failure = envelope.error;
       const message = failure?.message ?? failure?.code ?? tr('error.remoteFailed');
       const error = new Error(String(message));
-      (error as any).code = failure?.code;
+      (error as Record<string, unknown>).code = failure?.code;
       throw error;
     }
-    return result.value as T;
+    return envelope.value as T;
   }
   return result as T;
 }
@@ -105,13 +163,13 @@ function normalizeRoot(path: unknown): string {
  * @param ended - the error raised when the stream ends by itself.
  * @returns frames, already unwrapped and acknowledged.
  */
-function streamFrames(
-  remote: any,
+function streamFrames<T>(
+  remote: DshClientContext['remote'],
   name: string,
-  open: (lifetime: AbortSignal) => any,
+  open: (lifetime: AbortSignal) => AsyncIterable<{ value: T; accept(): void } | T>,
   signal: AbortSignal,
   ended: string,
-): AsyncIterable<any> {
+): AsyncIterable<T> {
   if (typeof remote.$stream !== 'function') return open(signal);
   const stream = remote.$stream({ name, open, ended: () => new Error(ended) });
   return (async function* () {
@@ -143,12 +201,12 @@ function streamFrames(
  * @param ctx - client root context carrying the sidebar, layout, and Remotes.
  * @returns a disposer that closes the stream and cancels any pending placement.
  */
-function startFollowing(ctx: any): () => void {
+function startFollowing(ctx: DshClientContext): () => void {
   const mounted = ctx.sidebarRight?.mounted;
   if (!mounted || typeof mounted.getSnapshot !== 'function') return () => {};
 
   const cwdCache = new Map<string, string>();
-  const timers = new Set<any>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   let active: { sessionId: string; stop: () => void } | null = null;
   let disposed = false;
 
@@ -157,7 +215,7 @@ function startFollowing(ctx: any): () => void {
     const cached = cwdCache.get(sessionId);
     if (cached !== undefined) return cached;
     try {
-      const list = unwrapRemote<any>(await ctx.remote.session.list({}));
+      const list = unwrapRemote<{ items?: { sessionId?: string; cwd?: string }[] }>(await ctx.remote.session.list({}));
       for (const item of Array.isArray(list?.items) ? list.items : []) {
         if (item?.sessionId === sessionId && typeof item.cwd === 'string') {
           cwdCache.set(sessionId, item.cwd);
@@ -211,7 +269,7 @@ function startFollowing(ctx: any): () => void {
     if (signal.aborted) return;
     const pending = new Map<string, string>();
     try {
-      for await (const frame of streamFrames(
+      for await (const frame of streamFrames<SessionEventFrame>(
         ctx.remote,
         `md-live follow ${sessionId}`,
         (lifetime: AbortSignal) =>
@@ -225,15 +283,16 @@ function startFollowing(ctx: any): () => void {
         if (event?.type === 'tool/call') {
           // An explicit "show me this" is honoured whether or not automatic
           // following is on: the reader asked for this one.
-          const preview = markdownPreviewTarget(event.data, cwd);
+          const data = event.data as ToolCallData;
+          const preview = markdownPreviewTarget(data, cwd);
           if (preview) {
             show(preview);
             continue;
           }
-          const write = markdownWriteTarget(event.data, cwd);
+          const write = markdownWriteTarget(data, cwd);
           if (write) pending.set(write.callId, write.path);
         } else if (event?.type === 'tool/result') {
-          const callId = resultCallId(event.data);
+          const callId = resultCallId(event.data as ToolResultData);
           const target = callId ? pending.get(callId) : undefined;
           if (!target) continue;
           pending.delete(callId);
@@ -291,7 +350,7 @@ export const inject = [
  *
  * @param ctx - client root context carrying the slot, tab, and Remote services.
  */
-export function apply(ctx: any) {
+export function apply(ctx: DshClientContext) {
   // The panel's copy follows the app's locale. Registration is fiber-owned, so
   // the dictionaries leave with the plugin; `t` stays valid across switches
   // because the service reads the active locale at call time.
@@ -327,7 +386,7 @@ export function apply(ctx: any) {
       discardGuard = guard;
     },
     readText: async (sessionId: string, path: string, signal: AbortSignal) => {
-      const bytes = unwrapRemote<any>(
+      const bytes = unwrapRemote<{ data?: Uint8Array | ArrayBuffer; version?: string }>(
         await ctx.remote.workspaceFiles.readBytes(sessionId, path, {}, signal),
       );
       const data = bytes?.data;
@@ -362,7 +421,7 @@ export function apply(ctx: any) {
       onProgress?: (files: string[]) => void,
     ): Promise<MdLiveListing> => {
       const list = async (dir: string) =>
-        unwrapRemote<any>(await ctx.remote.workspaceFiles.list(sessionId, dir, signal));
+        unwrapRemote<{ entries?: { name?: string; type?: string }[]; truncated?: boolean }>(await ctx.remote.workspaceFiles.list(sessionId, dir, signal));
 
       // The Host rejects an empty path ("path is required") and resolves a
       // relative one against the Session's workspace root, so the scan has to
@@ -384,7 +443,7 @@ export function apply(ctx: any) {
       let dirsScanned = 0;
       let skippedDirs = 0;
       let entriesSeen = 0;
-      let lastError: any = null;
+      let lastError: unknown = null;
       // Filtering is the user's call: the picker passes the rules it holds,
       // and an empty list means "walk everything".
       const skipDirs = new Set(
@@ -425,7 +484,7 @@ export function apply(ctx: any) {
             // pretending the directory held only what came back.
             if (listing?.truncated) mark('entries');
 
-            const entries: any[] = Array.isArray(listing?.entries) ? listing.entries : [];
+            const entries = Array.isArray(listing?.entries) ? listing.entries : [];
             entriesSeen += entries.length;
 
             for (const entry of entries) {
@@ -481,15 +540,15 @@ export function apply(ctx: any) {
     openPath: async (path: string, action?: 'reveal') => {
       // The Host owns the desktop: it hands the path to the OS default app, or
       // reveals it in the file manager. Nothing here touches the filesystem.
-      const request: any = { path };
+      const request: Record<string, unknown> = { path };
       if (action) request.action = action;
-      unwrapRemote<any>(await ctx.remote.session.openWorkspacePath(request));
+      unwrapRemote<unknown>(await ctx.remote.session.openWorkspacePath(request));
     },
     canOpenPath: async () => {
       // False when the browser is attached over the network: the Host has no
       // desktop to open anything on, and a dead button is worse than none.
       try {
-        return Boolean(unwrapRemote<any>(await ctx.remote.session.canOpenWorkspacePath()));
+        return Boolean(unwrapRemote<unknown>(await ctx.remote.session.canOpenWorkspacePath()));
       } catch {
         return false;
       }
@@ -504,14 +563,14 @@ export function apply(ctx: any) {
       // knows the absolute spelling the workspace listing gave it.
       await mdLiveReady;
       const remote = ctx.remote;
-      let ns: any;
+      let ns: { service?: { writeText?: (...args: unknown[]) => unknown }; writeText?: (...args: unknown[]) => unknown } | undefined;
       if (remote?.namespaces instanceof Map) {
         ns = remote.namespaces.get('mdLive');
       } else {
         ns = remote?.mdLive;
       }
 
-      let call: ((s: string, p: string, c: string, v: string) => Promise<any>) | undefined;
+      let call: ((s: string, p: string, c: string, v: string) => Promise<unknown>) | undefined;
       if (typeof ns?.service?.writeText === 'function') {
         call = ns.service.writeText.bind(ns.service);
       } else if (typeof ns?.writeText === 'function') {
@@ -544,7 +603,13 @@ export function apply(ctx: any) {
       // inject" on an undeclared property, and `sessions` is declared while the
       // scoped `conversation` is not ours to declare. `get` answers undefined
       // instead, which the caller turns into a notice.
-      let input: any;
+      let input: {
+        setDraft?: (text: string) => void;
+        focus?: () => void;
+        captureInsertion?: () => { start: number; end: number };
+        insertText?: (text: string, span: { start: number; end: number }) => boolean;
+        state?: { getSnapshot?: () => { draft?: string; occurrences?: unknown[] } };
+      } | undefined;
       try {
         const sessions = typeof ctx.get === 'function' ? ctx.get('sessions') : ctx.sessions;
         const scope = typeof sessions?.scope === 'function' ? sessions.scope(sessionId) : undefined;

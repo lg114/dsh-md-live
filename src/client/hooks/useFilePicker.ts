@@ -85,9 +85,9 @@ export function useFilePicker(opts: {
         if (ac.signal.aborted) return;
         scanCache.set(cacheKey, { result: found, timestamp: Date.now() });
         setList({ status: 'ready', ...found });
-      } catch (err: any) {
-        if (ac.signal.aborted || err?.name === 'AbortError') return;
-        setList({ ...EMPTY_LIST, status: 'error', error: String(err?.message ?? err) });
+      } catch (err: unknown) {
+        if (ac.signal.aborted || (err instanceof Error && err.name === 'AbortError')) return;
+        setList({ ...EMPTY_LIST, status: 'error', error: err instanceof Error ? err.message : String(err) });
       }
     })();
     return () => ac.abort();

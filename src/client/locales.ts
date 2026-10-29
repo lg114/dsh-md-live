@@ -296,8 +296,8 @@ export function useTranslator(next: Translate | undefined): void {
  * @param ctx - client root context; `locale` may be absent in a stripped shell.
  * @returns nothing; the registration is fiber-owned through `ctx.effect`.
  */
-export function installLocale(ctx: Context | any): Translate {
-  const locale = (ctx as any).locale;
+export function installLocale(ctx: Context): Translate {
+  const locale = (ctx as unknown as { locale?: { register?: (ns: string, dict: Record<string, string>) => void; bind?: (ns: string) => unknown } }).locale;
   if (!locale || typeof locale.register !== 'function' || typeof ctx.effect !== 'function') {
     useTranslator(undefined);
     return fallbackT;

@@ -151,8 +151,8 @@ export function useEditor(opts: {
           : t('error.saveFailed');
         onError(msg);
       }
-    } catch (err: any) {
-      onError(String(err?.message ?? err));
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -182,8 +182,8 @@ export function useEditor(opts: {
             : t('error.saveFailed');
         onError(msg);
       }
-    } catch (err: any) {
-      onError(String(err?.message ?? err));
+    } catch (err: unknown) {
+      onError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }

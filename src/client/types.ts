@@ -64,6 +64,11 @@ export interface ReadingSettings {
 
 export const DEFAULT_READING: ReadingSettings = { fontSize: null, lineHeight: null, width: null };
 
+export interface WatchFrame {
+  kind?: string;
+  change?: { version?: string };
+}
+
 export interface MdLiveApi {
   open: (path: string) => void;
   setDiscardGuard?: (guard: (() => boolean) | null) => void;
@@ -80,7 +85,7 @@ export interface MdLiveApi {
     signal: AbortSignal,
     onProgress?: (files: string[]) => void,
   ) => Promise<MdLiveListing>;
-  watch: (sessionId: string, path: string, signal: AbortSignal) => AsyncIterable<any>;
+  watch: (sessionId: string, path: string, signal: AbortSignal) => AsyncIterable<WatchFrame>;
   openExternal: (url: string) => void;
   openPath: (path: string, action?: 'reveal') => Promise<void>;
   canOpenPath: () => Promise<boolean>;
@@ -173,14 +178,15 @@ export function parseRules(text: string): string[] {
 }
 
 export function loadReading(): ReadingSettings {
-  const parsed = readStored<any>(READING_STORAGE_KEY);
+  const parsed = readStored<unknown>(READING_STORAGE_KEY);
   if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_READING };
+  const rec = parsed as Record<string, unknown>;
   const number = (value: unknown): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null;
   return {
-    fontSize: number(parsed.fontSize),
-    lineHeight: number(parsed.lineHeight),
-    width: number(parsed.width),
+    fontSize: number(rec.fontSize),
+    lineHeight: number(rec.lineHeight),
+    width: number(rec.width),
   };
 }
 

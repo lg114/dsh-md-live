@@ -18,6 +18,7 @@ import {
   DEFAULT_READING,
   type MdLiveApi,
   type Status,
+  type WatchFrame,
   escapeAttr,
   readingVars,
   relativeTo,
@@ -37,14 +38,20 @@ export type { MdLiveApi, MdLiveListing, WriteResult, QuoteOutcome, ReadingSettin
 export type { MdLiveScanBudget, MdLiveTruncation, MdLiveScanOptions } from '../types';
 export { DEFAULT_SKIP_DIRS, loadSkipDirs, saveSkipDirs } from '../types';
 
-export function MarkdownTabBody(props: any) {
-  const { useTabInfo, useSessions, sessionId, api, t: injectedT } = props as {
-    useTabInfo?: () => any;
-    useSessions?: (selector: (sessions: any) => any) => any;
-    sessionId?: string;
-    api?: MdLiveApi;
-    t?: Translate;
-  };
+interface TabInfo {
+  tab?: { navigation?: { params?: { path?: string } }; visible?: boolean };
+}
+
+interface MarkdownTabBodyProps {
+  useTabInfo?: () => TabInfo | undefined;
+  useSessions?: <T>(selector: (sessions: { byId?: Record<string, { cwd?: string }> }) => T) => T;
+  sessionId?: string;
+  api?: MdLiveApi;
+  t?: Translate;
+}
+
+export function MarkdownTabBody(props: MarkdownTabBodyProps) {
+  const { useTabInfo, useSessions, sessionId, api, t: injectedT } = props;
 
   const t: Translate = injectedT ?? fallbackT;
 
@@ -54,7 +61,7 @@ export function MarkdownTabBody(props: any) {
 
   const cwd: string | undefined =
     typeof useSessions === 'function'
-      ? useSessions((sessions: any) => sessions?.byId?.[sessionId ?? '']?.cwd)
+      ? useSessions((sessions) => sessions?.byId?.[sessionId ?? '']?.cwd)
       : undefined;
   const root = useMemo(() => (cwd ? String(cwd).replace(/\\/g, '/').replace(/\/+$/, '') : ''), [cwd]);
 
@@ -108,9 +115,9 @@ export function MarkdownTabBody(props: any) {
         setEncoding(result.encoding);
         setError('');
         setStatus('ready');
-      } catch (err: any) {
-        if (own.aborted || err?.name === 'AbortError' || token !== readTokenRef.current) return;
-        setError(String(err?.message ?? err));
+      } catch (err: unknown) {
+        if (own.aborted || (err instanceof Error && err.name === 'AbortError') || token !== readTokenRef.current) return;
+        setError(err instanceof Error ? err.message : String(err));
         setStatus('error');
       } finally {
         if (token === readTokenRef.current) setRefreshing(false);
@@ -358,7 +365,7 @@ export function MarkdownTabBody(props: any) {
   );
 
   const onPreviewClick = useCallback(
-    (event: any) => {
+    (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
       const img = target.closest?.('img') as HTMLImageElement | null;
@@ -397,7 +404,7 @@ export function MarkdownTabBody(props: any) {
 
   useEffect(() => {
     if (!settingsOpen) return;
-    const onDown = (event: any) => {
+    const onDown = (event: MouseEvent) => {
       const node = actionsRef.current;
       if (node && event.target && node.contains(event.target)) return;
       setSettingsOpen(false);
@@ -557,7 +564,7 @@ export function MarkdownTabBody(props: any) {
       <div className="md-live-content">
         {!path ? (
           <FilePicker
-            list={{ ...picker.list, status: picker.list.status, error: picker.list.error } as any}
+            list={{ ...picker.list, status: picker.list.status, error: picker.list.error }}
             skipDirs={picker.skipDirs}
             rulesOpen={picker.rulesOpen}
             draft={picker.draft}
@@ -679,8 +686,12 @@ export function MarkdownTabBody(props: any) {
   );
 }
 
-export function MarkdownTabTitle(props: any) {
-  const { useTabInfo } = props as { useTabInfo?: () => any };
+interface MarkdownTabTitleProps {
+  useTabInfo?: () => TabInfo | undefined;
+}
+
+export function MarkdownTabTitle(props: MarkdownTabTitleProps) {
+  const { useTabInfo } = props;
   const info = typeof useTabInfo === 'function' ? useTabInfo() : undefined;
   const path: string = info?.tab?.navigation?.params?.path ?? '';
   return <span>{path.split(/[\\/]/).pop() || 'md-live'}</span>;

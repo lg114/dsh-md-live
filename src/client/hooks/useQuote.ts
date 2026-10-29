@@ -103,8 +103,8 @@ export function useQuote(opts: {
               : t('quote.unavailable');
       setQuoteNotice(message);
       if (outcome.status === 'conflict') setQuote(current);
-    } catch (err: any) {
-      setQuoteNotice(String(err?.message ?? err));
+    } catch (err: unknown) {
+      setQuoteNotice(err instanceof Error ? err.message : String(err));
     }
   }, [api, quote, sessionId, shownPath, path, t]);
 

@@ -37,7 +37,7 @@ import yaml from 'highlight.js/lib/languages/yaml';
  * are included so that the fence language name the author wrote resolves
  * even when it is not the canonical name.
  */
-export const LANGUAGES: Record<string, any> = {
+export const LANGUAGES: Record<string, unknown> = {
   bash, sh: shell, shell, c, cpp, 'c++': cpp, csharp, 'c#': csharp, css, diff,
   go, ini, toml: ini, java, javascript, js: javascript, jsx: javascript,
   json, kotlin, lua, markdown, md: markdown, perl, php, python, py: python,

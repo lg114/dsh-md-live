@@ -3,7 +3,12 @@ import DOMPurifyImport from 'dompurify';
 import hljs from 'highlight.js/lib/core';
 import { fallbackT, type Translate } from '../locales';
 
-declare const require: { (id: string): any; async(id: string): Promise<any> };
+declare const require: { (id: string): unknown; async(id: string): Promise<unknown> };
+
+interface Purifier {
+  sanitize: (html: string, config?: Record<string, unknown>) => string;
+  addHook?: (hook: string, fn: (node: Element) => void) => void;
+}
 
 /**
  * Resolve the DOMPurify instance across module interop shapes.
@@ -14,26 +19,26 @@ declare const require: { (id: string): any; async(id: string): Promise<any> };
  * page DOM is ready — an unsupported instance silently passes HTML through, so
  * a wrong answer here must never be treated as "safe".
  */
-let cachedPurifier: any = null;
+let cachedPurifier: Purifier | null = null;
 
-function resolvePurifier(): { sanitize: (html: string, config?: any) => string } | null {
+function resolvePurifier(): Purifier | null {
   if (cachedPurifier) return cachedPurifier;
-  const candidate: any = DOMPurifyImport;
-  const supported = (instance: any) =>
-    instance && typeof instance.sanitize === 'function' && instance.isSupported !== false;
+  const candidate = DOMPurifyImport as unknown;
+  const isSupported = (instance: unknown): boolean =>
+    !!instance && typeof (instance as Purifier).sanitize === 'function' && (instance as { isSupported?: boolean }).isSupported !== false;
 
   if (typeof candidate === 'function' && typeof window !== 'undefined') {
     try {
-      const instance = candidate(window);
-      if (supported(instance)) cachedPurifier = instance;
+      const instance = (candidate as (win: Window) => Purifier)(window);
+      if (isSupported(instance)) cachedPurifier = instance;
     } catch {
       /* fall through */
     }
   }
-  if (!cachedPurifier && supported(candidate)) cachedPurifier = candidate;
-  if (!cachedPurifier && supported(candidate?.default)) cachedPurifier = candidate.default;
+  if (!cachedPurifier && isSupported(candidate)) cachedPurifier = candidate as Purifier;
+  if (!cachedPurifier && isSupported((candidate as { default?: unknown })?.default)) cachedPurifier = (candidate as { default: Purifier }).default;
   if (cachedPurifier && typeof cachedPurifier.addHook === 'function') {
-    cachedPurifier.addHook('afterSanitizeAttributes', (node: any) => {
+    cachedPurifier.addHook('afterSanitizeAttributes', (node: Element) => {
       if (node.tagName === 'A' && node.hasAttribute('target')) {
         const existing = node.getAttribute('rel') || '';
         const tokens = new Set(existing.split(/\s+/).filter(Boolean));
@@ -113,7 +118,7 @@ marked.use({
         if (/^\s|\s$/.test(match[1])) return undefined;
         return { type: 'inlineMath', raw: match[0], text: match[1] };
       },
-      renderer(token: any) {
+      renderer(token: { text: string }) {
         return mathPlaceholder(token.text, false);
       },
     },
@@ -128,7 +133,7 @@ marked.use({
         if (!match) return undefined;
         return { type: 'blockMath', raw: match[0], text: match[1] };
       },
-      renderer(token: any) {
+      renderer(token: { text: string }) {
         return mathPlaceholder(token.text, true);
       },
     },
@@ -536,7 +541,7 @@ export function sanitizeHtml(html: string): string {
 }
 
 let hljsChunkLoaded = false;
-let hljsChunkPromise: Promise<any> | null = null;
+let hljsChunkPromise: Promise<{ LANGUAGES: Record<string, unknown> }> | null = null;
 
 /**
  * A bounded LRU cache for expensive render results.
@@ -592,12 +597,13 @@ export async function highlightWithin(root: HTMLElement | null): Promise<void> {
   if (blocks.length === 0) return;
   if (!hljsChunkLoaded) {
     if (!hljsChunkPromise) {
-      hljsChunkPromise = require.async('./client.hljs-languages.js').then((chunk: any) => {
-        for (const [name, definition] of Object.entries(chunk.LANGUAGES)) {
+      hljsChunkPromise = require.async('./client.hljs-languages.js').then((chunk) => {
+        const mod = chunk as { LANGUAGES: Record<string, (hljs: typeof hljs) => void> };
+        for (const [name, definition] of Object.entries(mod.LANGUAGES)) {
           hljs.registerLanguage(name, definition);
         }
         hljsChunkLoaded = true;
-        return chunk;
+        return mod;
       });
     }
     await hljsChunkPromise;

@@ -38,6 +38,18 @@ export const name = 'dsh-md-live';
  */
 export const inject: string[] = [];
 
+/** Minimal shape of the Cordis Host context this plugin touches. */
+interface HostContext {
+  inject(deps: string[], fn: (ctx: HostContext) => void): void;
+  get(name: string): unknown;
+  typert?: {
+    register(spec: { package: string; face: string; schemas: unknown[]; invocations: unknown }): void;
+  };
+  tools?: {
+    register(tool: unknown): void;
+  };
+}
+
 /**
  * Register the Remote write service and the Agent-facing `preview_md` tool.
  *
@@ -46,12 +58,12 @@ export const inject: string[] = [];
  *
  * @param ctx - Host context.
  */
-export function apply(ctx: any): void {
-  ctx.inject(['typert'], (typertCtx: any) => {
+export function apply(ctx: HostContext): void {
+  ctx.inject(['typert'], (typertCtx: HostContext) => {
     void registerRemoteService(typertCtx);
   });
 
-  ctx.inject(['tools'], (toolsCtx: any) => {
+  ctx.inject(['tools'], (toolsCtx: HostContext) => {
     registerPreviewTool(toolsCtx);
   });
 }
@@ -69,10 +81,10 @@ export function apply(ctx: any): void {
  *
  * @param ctx - Host context scoped to include `typert`.
  */
-function registerRemoteService(ctx: any): void {
+function registerRemoteService(ctx: HostContext): void {
   try {
     new MdLiveRemote(ctx);
-    ctx.typert.register({
+    ctx.typert!.register({
       package: 'dsh-md-live',
       face: 'host' as const,
       schemas: [],
@@ -124,12 +136,12 @@ const previewTool = {
       },
       required: ['path'],
     },
-    render: (_args: any, value: any) => [
+    render: (_args: unknown, value: { path?: string }) => [
       { type: 'text', text: `Opened ${value.path} in the md-live panel` },
     ],
   },
-  async execute(args: any) {
-    const path = typeof args?.path === 'string' ? args.path.trim() : '';
+  async execute(args: Record<string, unknown>) {
+    const path = typeof args?.path === 'string' ? (args.path as string).trim() : '';
     if (!path) throw new Error('preview_md requires a file path');
     if (!/\.(md|markdown|mdx)$/i.test(path)) {
       throw new Error(`preview_md can only open Markdown files: ${path}`);
@@ -153,9 +165,9 @@ const previewTool = {
  *
  * @param ctx - Host context whose `tools` service receives the definition.
  */
-function registerPreviewTool(ctx: any): void {
+function registerPreviewTool(ctx: HostContext): void {
   try {
-    ctx.tools.register(previewTool);
+    ctx.tools!.register(previewTool);
   } catch (err) {
     console.warn('[dsh-md-live] preview_md 未注册：', err);
   }

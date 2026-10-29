@@ -129,7 +129,7 @@ const writeTextDescriptor = {
     };
   },
 
-  invoke(remote: any, input: any, _signal?: AbortSignal) {
+  invoke(remote: { namespaces?: Map<string, { writeText?: (...args: unknown[]) => unknown }>; mdLive?: { writeText?: (...args: unknown[]) => unknown } }, input: Record<string, unknown>, _signal?: AbortSignal) {
     const values = PARAMS.map((p) => input[p.wire]);
     const receiver = remote?.namespaces instanceof Map
       ? remote.namespaces.get('mdLive')
@@ -144,4 +144,4 @@ const writeTextDescriptor = {
 
 export const CLIENT_DESCRIPTORS = Object.freeze([
   Object.freeze(writeTextDescriptor),
-]) as readonly any[];
+]) as readonly typeof writeTextDescriptor[];

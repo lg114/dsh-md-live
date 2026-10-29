@@ -47,17 +47,27 @@ export interface AgentWrite {
 }
 
 /** Read a tool call's arguments, which travel as JSON text. */
-function parseArguments(raw: unknown): Record<string, any> | null {
-  if (raw && typeof raw === 'object') return raw as Record<string, any>;
+function parseArguments(raw: unknown): Record<string, unknown> | null {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
   if (typeof raw !== 'string' || raw === '') return null;
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
   } catch {
     // A streamed call can be observed mid-write; a half-written payload simply
     // is not a target yet.
     return null;
   }
+}
+
+export interface ToolCallData {
+  name?: unknown;
+  arguments?: unknown;
+  callId?: unknown;
+}
+
+export interface ToolResultData {
+  message?: { source?: { callId?: unknown } };
 }
 
 /**
@@ -72,7 +82,7 @@ function parseArguments(raw: unknown): Record<string, any> | null {
  *   against (the Host's filesystem backend does the same).
  * @returns the target, or `null` for any call that does not write Markdown.
  */
-export function markdownWriteTarget(data: any, cwd: string): AgentWrite | null {
+export function markdownWriteTarget(data: ToolCallData, cwd: string): AgentWrite | null {
   const name = typeof data?.name === 'string' ? data.name : '';
   const isEditor = name === EDITOR_TOOL;
   if (!WRITE_TOOLS.has(name) && !isEditor) return null;
@@ -98,7 +108,7 @@ export function markdownWriteTarget(data: any, cwd: string): AgentWrite | null {
  * @param data - the event's `data` payload: `{ message: { source: { callId } } }`.
  * @returns the call identity, or `''` when the frame carries none.
  */
-export function resultCallId(data: any): string {
+export function resultCallId(data: ToolResultData): string {
   const id = data?.message?.source?.callId;
   return id === undefined ? '' : String(id);
 }
@@ -116,7 +126,7 @@ export function resultCallId(data: any): string {
  *   against.
  * @returns the file to show, or `null` for any other call.
  */
-export function markdownPreviewTarget(data: any, cwd: string): string | null {
+export function markdownPreviewTarget(data: ToolCallData, cwd: string): string | null {
   if (typeof data?.name !== 'string' || data.name !== PREVIEW_TOOL) return null;
   const args = parseArguments(data?.arguments);
   if (!args) return null;

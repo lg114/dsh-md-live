@@ -38,8 +38,31 @@ const REMOTE_METHOD_DESCRIPTOR = '@deepseek-ai/dsh-typert-protocol/remote-method
  * class is simple enough to inline: it just registers the service instance
  * with the context under the given namespace.
  */
+/** Minimal Cordis context for Host-side service registration. */
+interface HostServiceCtx {
+  reflect?: { provide(namespace: string, service: unknown): void };
+  get(name: string): unknown;
+}
+
+/** Cordis session shape as touched by this service. */
+interface HostSession {
+  sessionId?: string;
+}
+
+/** Filesystem service as provided by the DSH backend. */
+interface HostFs {
+  resolve(path: string): Promise<{ targetKey: string; displayPath: string }>;
+  writeText(target: { targetKey: string; displayPath: string }, content: string, intent: { kind: string; version: string }, unused?: unknown, policy?: SandboxPolicy): Promise<{ version: string }>;
+  stat(target: { targetKey: string; displayPath: string }): Promise<{ version: string } | null>;
+}
+
+/** Sandbox policy service. */
+interface HostSandboxPolicy {
+  resolve(opts: { session: HostSession }): SandboxPolicy | undefined;
+}
+
 class TypertRemoteService {
-  constructor(ctx: any, protected namespace: string) {
+  constructor(ctx: HostServiceCtx, protected namespace: string) {
     if (ctx && typeof ctx.reflect?.provide === 'function') {
       ctx.reflect.provide(namespace, this);
     }
@@ -101,9 +124,9 @@ interface SandboxPolicy {
 }
 
 export class MdLiveRemote extends TypertRemoteService {
-  private readonly hostCtx: any;
+  private readonly hostCtx: HostServiceCtx;
 
-  constructor(ctx: any) {
+  constructor(ctx: HostServiceCtx) {
     super(ctx, 'mdLive');
     this.hostCtx = ctx;
   }
@@ -129,9 +152,9 @@ export class MdLiveRemote extends TypertRemoteService {
    * @param content - the full new text.
    * @param version - the version the editor started from; empty skips the check.
    */
-  async writeText(sessionOrId: any, path: string, content: string, version: string): Promise<WriteResult> {
-    const sessions = this.hostCtx.get('sessions');
-    const session = typeof sessionOrId === 'string'
+  async writeText(sessionOrId: string | HostSession, path: string, content: string, version: string): Promise<WriteResult> {
+    const sessions = this.hostCtx.get('sessions') as { get(id: string): HostSession | undefined } | undefined;
+    const session: HostSession | undefined = typeof sessionOrId === 'string'
       ? (typeof sessions?.get === 'function' ? sessions.get(sessionOrId) : undefined)
       : sessionOrId;
     if (session === undefined || session === null) {
@@ -154,7 +177,7 @@ export class MdLiveRemote extends TypertRemoteService {
     }
 
     const ctx = this.hostCtx;
-    const fs = ctx.get('fs');
+    const fs = ctx.get('fs') as HostFs | undefined;
     if (!fs || typeof fs.resolve !== 'function' || typeof fs.writeText !== 'function') {
       return { status: 'error', message: '文件系统服务不可用' };
     }
@@ -171,8 +194,8 @@ export class MdLiveRemote extends TypertRemoteService {
     let target: { targetKey: string; displayPath: string };
     try {
       target = await fs.resolve(normalizedPath);
-    } catch (err: any) {
-      if (err?.code === 'FS_NOT_FOUND') return { status: 'missing' };
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'FS_NOT_FOUND') return { status: 'missing' };
       return denialOf(describeFailure(err, normalizedPath, policy));
     }
 
@@ -198,12 +221,13 @@ export class MdLiveRemote extends TypertRemoteService {
       // then fences against `process.cwd()` instead of the Session's cwd.
       const outcome = await fs.writeText(target, content, intent, undefined, policy);
       return { status: 'saved', version: outcome.version, bytes };
-    } catch (err: any) {
-      if (err?.code === 'FS_STALE_VERSION') {
-        return { status: 'stale', currentVersion: String(err?.version ?? '') };
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'FS_STALE_VERSION') {
+        return { status: 'stale', currentVersion: String((err as { version?: string })?.version ?? '') };
       }
       const denial = describeFailure(err, path, policy);
-      if (isSandboxDenial(err) || err?.code === 'FS_NOT_OBSERVED') {
+      if (isSandboxDenial(err) || code === 'FS_NOT_OBSERVED') {
         return denialOf(denial);
       }
       return { status: 'error', message: denial.reason };
@@ -220,8 +244,8 @@ export class MdLiveRemote extends TypertRemoteService {
    * @param session - the Session the write belongs to.
    * @returns the resolved policy, or `undefined` without a policy service.
    */
-  private policyOf(session: any): SandboxPolicy | undefined {
-    const sandboxPolicy = this.hostCtx.get('sandboxPolicy');
+  private policyOf(session: HostSession): SandboxPolicy | undefined {
+    const sandboxPolicy = this.hostCtx.get('sandboxPolicy') as HostSandboxPolicy | undefined;
     if (typeof sandboxPolicy?.resolve !== 'function') return undefined;
     return sandboxPolicy.resolve({ session });
   }
@@ -237,9 +261,9 @@ export class MdLiveRemote extends TypertRemoteService {
  * @param err - what the backend threw.
  * @returns whether the failure is a sandbox refusal.
  */
-function isSandboxDenial(err: any): boolean {
-  if (String(err?.code ?? '') === 'FS_SANDBOX_DENIED') return true;
-  const lower = String(err?.message ?? err).toLowerCase();
+function isSandboxDenial(err: unknown): boolean {
+  if (String((err as { code?: string })?.code ?? '') === 'FS_SANDBOX_DENIED') return true;
+  const lower = String((err as { message?: string })?.message ?? err).toLowerCase();
   return /access denied under (?:read-only|workspace-write) mode/.test(lower) || lower.includes('sandbox');
 }
 
@@ -258,8 +282,8 @@ function isSandboxDenial(err: any): boolean {
  * @param policy - the policy that fenced the write, when one was resolved.
  * @returns the refusal code, the reason, and the values a translation needs.
  */
-function describeFailure(err: any, path: string, policy: SandboxPolicy | undefined): Denial {
-  const message = String(err?.message ?? err);
+function describeFailure(err: unknown, path: string, policy: SandboxPolicy | undefined): Denial {
+  const message = String((err as { message?: string })?.message ?? err);
   const lower = message.toLowerCase();
 
   if (isSandboxDenial(err)) {
