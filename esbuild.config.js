@@ -31,21 +31,31 @@ const PLATFORM_EXTERNALS = [
  *
  * Chunks carry a `chunk` field so the loader files them under the parent
  * module id; the entry has no chunk field.
+ *
+ * The entry bundle ships its CSS as a sibling file (lib/client.css). The
+ * wrapper captures `document.currentScript` at load time so the factory can
+ * derive the CSS URL and inject a <link> tag — keeping the CSS out of the JS
+ * bundle for independent caching and a smaller payload.
  */
-function wrapModule(body, chunk, cssContent) {
+function wrapModule(body, chunk, injectCssLink) {
   const chunkField = chunk ? `\n\tchunk: ${JSON.stringify(chunk)},` : '';
-  const cssInjection = cssContent
-    ? `\n\t\tif (typeof document !== 'undefined') {
-\t\t\tvar style = document.createElement('style');
-\t\t\tstyle.setAttribute('data-dsh-plugin', ${JSON.stringify(PACKAGE_NAME)});
-\t\t\tstyle.textContent = ${JSON.stringify(cssContent)};
-\t\t\tdocument.head.appendChild(style);
+  const cssSetup = injectCssLink
+    ? `var __cssBase = (typeof document !== 'undefined' && document.currentScript)
+\t\t? document.currentScript.src : '';`
+    : '';
+  const cssInjection = injectCssLink
+    ? `\n\t\tif (typeof document !== 'undefined' && __cssBase) {
+\t\t\tvar link = document.createElement('link');
+\t\t\tlink.rel = 'stylesheet';
+\t\t\tlink.href = new URL('./client.css', __cssBase).href;
+\t\t\tlink.setAttribute('data-dsh-plugin', ${JSON.stringify(PACKAGE_NAME)});
+\t\t\tdocument.head.appendChild(link);
 \t\t}`
     : '';
   const label = chunk ? `${PACKAGE_NAME}.${chunk}` : PACKAGE_NAME;
 
   return `// DSH Client Module: ${label}
-window.__ModuleLoader__.load({
+${cssSetup ? `${cssSetup}\n` : ''}window.__ModuleLoader__.load({
 \tid: ${JSON.stringify(PACKAGE_NAME)},${chunkField}
 \tfactory: (require) => {
 \t\t"use strict";
@@ -61,9 +71,6 @@ ${cssInjection}
 }
 
 async function build() {
-  const cssPath = path.join(process.cwd(), 'src/client/styles/panel.css');
-  const cssContent = fs.readFileSync(cssPath, 'utf-8');
-
   const shared = {
     bundle: true,
     format: 'cjs',
@@ -77,6 +84,22 @@ async function build() {
     loader: { '.tsx': 'tsx', '.ts': 'ts' },
   };
 
+  // Minify panel.css into a standalone file so the entry bundle loads it via
+  // a <link> tag instead of carrying it as an inline string.
+  const cssRaw = fs.readFileSync(
+    path.join(process.cwd(), 'src/client/styles/panel.css'),
+    'utf-8',
+  );
+  const cssMinified = await esbuild.transform(cssRaw, {
+    loader: 'css',
+    minify: true,
+  });
+  fs.writeFileSync(
+    path.join(process.cwd(), 'lib/client.css'),
+    cssMinified.code,
+    'utf-8',
+  );
+
   // 1) Entry: the main tab, React components, marked, DOMPurify, hljs core.
   //    KaTeX and hljs language definitions are NOT here — they live in chunks.
   const entryResult = await esbuild.build({
@@ -89,7 +112,7 @@ async function build() {
   const entryBody = entryResult.outputFiles[0].text;
   fs.writeFileSync(
     path.join(process.cwd(), 'lib/client.cjs'),
-    wrapModule(entryBody, null, cssContent),
+    wrapModule(entryBody, null, true),
     'utf-8',
   );
 
@@ -125,12 +148,14 @@ async function build() {
   );
 
   const entrySize = fs.statSync(path.join(process.cwd(), 'lib/client.cjs')).size;
+  const cssSize = fs.statSync(path.join(process.cwd(), 'lib/client.css')).size;
   const katexSize = fs.statSync(path.join(process.cwd(), 'lib/client.katex.js')).size;
   const hljsSize = fs.statSync(path.join(process.cwd(), 'lib/client.hljs-languages.js')).size;
   const fmt = (n) => n > 1024 ? `${(n / 1024).toFixed(0)} KB` : `${n} B`;
 
   console.log(`✓ Client bundles built:`);
   console.log(`  lib/client.cjs            ${fmt(entrySize)} (entry)`);
+  console.log(`  lib/client.css            ${fmt(cssSize)} (styles)`);
   console.log(`  lib/client.katex.js       ${fmt(katexSize)} (chunk: math)`);
   console.log(`  lib/client.hljs-languages.js ${fmt(hljsSize)} (chunk: highlighting)`);
 }
