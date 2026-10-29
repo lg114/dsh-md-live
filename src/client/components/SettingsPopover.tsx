@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Translate } from '../locales';
-import { DEFAULT_READING, FOLLOW_STORAGE_KEY, type ReadingSettings } from '../types';
+import { DEFAULT_READING, type ReadingSettings } from '../types';
 
 interface SettingsPopoverProps {
   reading: ReadingSettings;
